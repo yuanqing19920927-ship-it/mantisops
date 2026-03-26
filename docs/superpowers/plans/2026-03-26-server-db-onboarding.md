@@ -397,9 +397,24 @@ import (
     "testing"
 )
 
+// 新增测试 helper（现有 setupTestDB 返回 *ServerStore，不是 *sql.DB）
+func setupTestSQLite(t *testing.T) *sql.DB {
+    db, err := InitSQLite(t.TempDir() + "/test.db")
+    if err != nil {
+        t.Fatal(err)
+    }
+    t.Cleanup(func() { db.Close() })
+    return db
+}
+
+func testMasterKey() []byte {
+    key, _ := hex.DecodeString("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    return key
+}
+
 func TestCredentialStore_CreateAndGet(t *testing.T) {
-    db := setupTestDB(t) // 复用已有的测试 helper
-    cs := NewCredentialStore(db, testEncryptionKey())
+    db := setupTestSQLite(t)
+    cs := NewCredentialStore(db, testMasterKey())
 
     id, err := cs.Create("test-ssh", "ssh_password", map[string]string{"password": "secret"})
     if err != nil {
@@ -419,8 +434,8 @@ func TestCredentialStore_CreateAndGet(t *testing.T) {
 }
 
 func TestCredentialStore_List_NoSensitiveData(t *testing.T) {
-    db := setupTestDB(t)
-    cs := NewCredentialStore(db, testEncryptionKey())
+    db := setupTestSQLite(t)
+    cs := NewCredentialStore(db, testMasterKey())
     cs.Create("cred1", "ssh_password", map[string]string{"password": "x"})
 
     list, err := cs.List()
@@ -434,8 +449,8 @@ func TestCredentialStore_List_NoSensitiveData(t *testing.T) {
 }
 
 func TestCredentialStore_Delete_WithReference(t *testing.T) {
-    db := setupTestDB(t)
-    cs := NewCredentialStore(db, testEncryptionKey())
+    db := setupTestSQLite(t)
+    cs := NewCredentialStore(db, testMasterKey())
     id, _ := cs.Create("ref-test", "ssh_password", map[string]string{"password": "x"})
 
     // 插入一个引用该凭据的 managed_server
@@ -778,7 +793,7 @@ git commit -m "refactor(api): replace SetupRouter params with RouterDeps struct"
 - `DeleteAccountRow(tx *sql.Tx, id int) error` — 在调用方提供的事务内删 cloud_accounts 行（ON DELETE CASCADE 处理 cloud_instances）
 - `UpsertInstance(accountID int, inst *CloudInstance) error` — INSERT ... ON CONFLICT(cloud_account_id, instance_id) DO UPDATE SET instance_name=, region_id=, spec=, engine=, endpoint=, extra=, updated_at=; 注意 **不更新 id、monitored、host_id**，确保实例主键稳定、用户的启用状态不被重新同步覆盖
 - `ListInstances(accountID int) ([]CloudInstance, error)`
-- `ConfirmInstances(ids []int) error` — 在单个 `db.BeginTx` 事务内：(1) UPDATE cloud_instances SET monitored=1 WHERE id IN (...)；(2) 对 instance_type='ecs' 的实例，直接在事务内执行 `INSERT OR REPLACE INTO servers (host_id, hostname, ...) VALUES (?, ?, ...)`（自包含 SQL，不依赖 ServerStore.Upsert，因为后者不接受 tx）；(3) tx.Commit。保证"启用监控 + 注册服务器"原子完成。
+- `ConfirmInstances(ids []int) error` — 在单个 `db.BeginTx` 事务内：(1) UPDATE cloud_instances SET monitored=1 WHERE id IN (...)；(2) 对 instance_type='ecs' 的实例，在事务内执行与 `ServerStore.Upsert` 相同语义的 `INSERT INTO servers (...) ... ON CONFLICT(host_id) DO UPDATE SET hostname=excluded.hostname, ...`（**不用 INSERT OR REPLACE**，因为 REPLACE 会删旧行重建新 ID，破坏 assets/probe_rules 外键引用；ON CONFLICT DO UPDATE 保留原 id + display_name + sort_order 等用户数据）；(3) tx.Commit。保证"启用监控 + 注册服务器"原子完成。
 - `LoadMonitoredInstances() (ecs []CloudInstance, rds []CloudInstance, error)` — 联合查询 synced/partial + monitored=1
 - `GetDeleteImpact(hostIDs []string) (*DeleteImpact, error)` — 查 assets/probe_rules/alert_rules/alert_events 数量
 - `CascadeDeleteServers(tx *sql.Tx, hostIDs []string) error` — **在调用方提供的事务内**按顺序清理 alert_notifications → alert_events → alert_rules → probe_rules → assets → servers。不自己开事务。
@@ -1282,9 +1297,19 @@ git commit -m "feat(web): add onboarding API client, export shared axios instanc
 
 表单：host/port/user/auth_type/password|key + 高级选项。测试连接 → 进度面板 → 完成。
 
-- [ ] **Step 3: 修改 Servers/index.tsx 添加按钮**
+- [ ] **Step 3: 修改 Servers/index.tsx 添加按钮 + 安装状态徽章**
 
 顶部添加「+ 添加服务器」按钮，点击打开 AddServerDialog。
+
+**安装状态徽章数据流：** 当前 Servers 页从 `/dashboard` 通过 `useServerStore` 获取服务器列表，不包含托管状态。需要补数据流：
+
+1. 页面挂载时调用 `getManagedServers()` 拉取托管列表
+2. 构建 `Map<agent_host_id, ManagedServer>` 用于快速查找
+3. 渲染 ServerCard 时，通过 `server.host_id` 匹配 ManagedServer
+4. 若匹配到且 `install_state !== 'online'`，在卡片上显示状态徽章（如「安装中」「连接失败」）
+5. deploy_progress WebSocket 消息更新本地 ManagedServer 状态
+
+注意：Task 12 已给 `GET /servers` 增加了 `source` 字段（agent/managed/cloud），这里可以用 source === 'managed' 来决定是否显示安装相关 UI，而实际 install_state 仍需从 `/managed-servers` 获取。
 
 - [ ] **Step 4: useWebSocket 处理 deploy_progress 消息**
 
@@ -1293,7 +1318,7 @@ git commit -m "feat(web): add onboarding API client, export shared axios instanc
 ```bash
 git add web/src/components/AddServerDialog.tsx web/src/components/DeployProgress.tsx \
         web/src/pages/Servers/index.tsx web/src/hooks/useWebSocket.ts
-git commit -m "feat(web): add server dialog with deploy progress"
+git commit -m "feat(web): add server dialog with deploy progress and status badges"
 ```
 
 ---
