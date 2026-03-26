@@ -54,9 +54,12 @@ CREATE TABLE IF NOT EXISTS credentials (
 
 **加密方案：**
 - 算法：AES-256-GCM（认证加密，防篡改）
-- 密钥来源：`server.yaml` 新增 `encryption_key` 字段（32 字节 hex）
-- 首次启动时若未配置，自动生成随机密钥并写回配置文件
+- 密钥来源（优先级从高到低）：
+  1. 环境变量 `OPSBOARD_ENCRYPTION_KEY`
+  2. `server.yaml` 中的 `encryption_key` 字段（32 字节 hex）
+  3. 首次启动时自动生成随机密钥并尝试写回配置文件；若写回失败（如只读挂载），打印 WARN 日志并要求用户手动配置
 - 存储格式：`base64(nonce + ciphertext + tag)`
+- **密钥丢失后果**：所有已加密凭据不可恢复，需重新录入。生产环境务必备份密钥。
 
 ### 2.2 托管服务器表 `managed_servers`
 
@@ -69,13 +72,16 @@ CREATE TABLE IF NOT EXISTS managed_servers (
     ssh_port      INTEGER DEFAULT 22,
     ssh_user      TEXT NOT NULL,
     credential_id INTEGER NOT NULL REFERENCES credentials(id),
+    detected_arch TEXT DEFAULT '',         -- 检测到的目标架构 (amd64/arm64)
     install_state TEXT DEFAULT 'pending',
     install_error TEXT DEFAULT '',
     agent_host_id TEXT DEFAULT '',
+    agent_version TEXT DEFAULT '',         -- 已部署的 Agent 版本
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_managed_servers_host ON managed_servers(host);
+CREATE INDEX IF NOT EXISTS idx_managed_servers_agent_host_id ON managed_servers(agent_host_id);
 ```
 
 ### 2.3 云账号表 `cloud_accounts`
@@ -88,8 +94,8 @@ CREATE TABLE IF NOT EXISTS cloud_accounts (
     credential_id   INTEGER NOT NULL REFERENCES credentials(id),
     region_ids      TEXT DEFAULT '[]',      -- JSON 数组，空数组=全部区域
     auto_discover   INTEGER DEFAULT 1,
-    sync_state      TEXT DEFAULT 'pending', -- 'pending' | 'syncing' | 'synced' | 'failed'
-    sync_error      TEXT DEFAULT '',
+    sync_state      TEXT DEFAULT 'pending', -- 'pending' | 'syncing' | 'synced' | 'partial' | 'failed'
+    sync_error      TEXT DEFAULT '',       -- JSON: {"ecs":"ok","rds":"权限不足"} 支持分类型错误
     last_synced_at  DATETIME,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -106,7 +112,7 @@ CREATE TABLE IF NOT EXISTS cloud_instances (
     cloud_account_id INTEGER NOT NULL REFERENCES cloud_accounts(id) ON DELETE CASCADE,
     instance_type    TEXT NOT NULL,           -- 'ecs' | 'rds'
     instance_id      TEXT NOT NULL,           -- 阿里云实例 ID（如 i-xxx, rm-xxx）
-    host_id          TEXT NOT NULL UNIQUE,    -- OpsBoard 内部标识
+    host_id          TEXT NOT NULL,           -- OpsBoard 内部标识
     instance_name    TEXT DEFAULT '',
     region_id        TEXT DEFAULT '',
     spec             TEXT DEFAULT '',         -- 实例规格
@@ -117,7 +123,8 @@ CREATE TABLE IF NOT EXISTS cloud_instances (
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_cloud_instances_account ON cloud_instances(cloud_account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_account_instance ON cloud_instances(cloud_account_id, instance_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_host_id ON cloud_instances(host_id);
 CREATE INDEX IF NOT EXISTS idx_cloud_instances_type ON cloud_instances(instance_type);
 ```
 
@@ -235,10 +242,12 @@ type Deployer struct {
     mu            sync.Mutex
 }
 
-// Deploy 启动异步安装流程
+// Deploy 启动异步安装流程（CAS 防并发：只有 pending/failed 状态可触发）
+// UPDATE managed_servers SET install_state='testing' WHERE id=? AND install_state IN ('pending','failed')
+// 若 affected rows == 0，返回 "安装已在进行中" 错误
 func (d *Deployer) Deploy(managedID int) error
 
-// NotifyRegistered 由 gRPC handler 调用，当新 Agent 注册时通知 deployer
+// NotifyRegistered 由 gRPC handler 调用（通过 onRegister 回调），当新 Agent 注册时通知 deployer
 func (d *Deployer) NotifyRegistered(hostID string)
 ```
 
@@ -256,7 +265,8 @@ type SSHClient struct {
 
 func (s *SSHClient) TestConnection() (latencyMs int, err error)
 func (s *SSHClient) DetectArch() (arch string, err error)
-func (s *SSHClient) Upload(localPath, remotePath string) error     // SCP
+func (s *SSHClient) Upload(localPath, remotePath string) error     // 使用 SFTP（非 shell echo）
+func (s *SSHClient) WriteFile(remotePath string, content []byte, perm os.FileMode) error  // SFTP 写文件
 func (s *SSHClient) Execute(cmd string) (stdout, stderr string, err error)
 ```
 
@@ -292,9 +302,10 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
 
     agentID := generateAgentID(managed.Host)  // 如 "srv-62-zentao"
     agentYAML := generateAgentConfig(d.grpcAddr, d.pskToken, agentID, managed.Options)
-    // 写配置到远端
+    // 通过 SFTP 写配置到远端（避免 shell echo 注入风险和 ARG_MAX 限制）
     client.Execute("sudo mkdir -p /etc/opsboard")
-    client.Execute(fmt.Sprintf("echo '%s' | sudo tee /etc/opsboard/agent.yaml", agentYAML))
+    client.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644)
+    client.Execute("sudo mv /tmp/agent.yaml /etc/opsboard/agent.yaml")
     // 安装二进制
     client.Execute("sudo mv /tmp/opsboard-agent /usr/local/bin/opsboard-agent")
     client.Execute("sudo chmod +x /usr/local/bin/opsboard-agent")
@@ -311,7 +322,7 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
         d.updateState(managed.ID, "online", "")
         d.updateAgentHostID(managed.ID, agentID)
         d.broadcast(managed.ID, "online", "Agent 已在线")
-    case <-time.After(60 * time.Second):
+    case <-time.After(120 * time.Second):  // 可通过 server.yaml agent.register_timeout 配置
         d.fail(managed.ID, "Agent注册超时，请检查网络和防火墙")
     }
 }
@@ -379,15 +390,18 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
 
 ### 3.5 gRPC 注册通知
 
-现有 `grpc/handler.go` 的 `Register` 方法在新 Agent 注册时，增加一行回调：
+现有 `grpc/handler.go` 的 `Register` 方法在新 Agent 注册时，通过回调通知。采用与现有 `onMetrics` 一致的回调模式（而非直接注入 deployer），避免循环依赖：
 
 ```go
+// NewHandler 新增 onRegister 回调参数
+func NewHandler(ss *store.ServerStore, onMetrics func(...), onRegister func(hostID string)) *Handler
+
 func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
     // ... 现有逻辑 ...
 
     // 通知 deployer（如果有安装任务在等待）
-    if h.deployer != nil {
-        h.deployer.NotifyRegistered(req.HostId)
+    if h.onRegister != nil {
+        h.onRegister(req.HostId)
     }
 
     return &pb.RegisterResponse{Accepted: true, ReportInterval: 5}, nil
@@ -484,12 +498,16 @@ func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Re
     ┌────▼────┐
     │ syncing │ 验证 AK + 发现/验证实例 + 注册
     └────┬────┘
-    成功  │  失败 → failed (error 详情)
-    ┌────▼────┐
-    │ synced  │ 完成，实例已入库
-    └─────────┘
+         │
+    ┌────┼──────────────────────┐
+    │    │                      │
+    ▼    ▼                      ▼
+ synced  partial              failed
+ (全成功) (部分成功，如 ECS    (全失败)
+          成功但 RDS 失败)
 
-synced 状态的账号会被 AliyunCollector 纳入采集循环。
+synced 和 partial 状态的账号都会被 AliyunCollector 纳入采集循环（仅采集已成功入库的实例）。
+sync_error 存储 JSON 格式的分类型错误信息：{"ecs":"ok","rds":"权限不足: ..."}
 可手动触发「重新同步」刷新实例列表。
 ```
 
@@ -574,7 +592,7 @@ RDS: "rds-{instance_id}"       例: "rds-rm-bp1cvllbx3442lf0p"
 | POST | `/api/v1/cloud-accounts` | 添加云账号 |
 | PUT | `/api/v1/cloud-accounts/:id` | 更新云账号 |
 | DELETE | `/api/v1/cloud-accounts/:id` | 删除云账号（级联删除实例） |
-| POST | `/api/v1/cloud-accounts/:id/verify` | 验证 AK 有效性 + 权限检查 |
+| POST | `/api/v1/cloud-accounts/verify` | 验证 AK 有效性 + 权限检查（无需先创建账号） |
 | POST | `/api/v1/cloud-accounts/:id/sync` | 触发实例同步 |
 | GET | `/api/v1/cloud-accounts/:id/instances` | 获取该账号下的实例列表 |
 | PUT | `/api/v1/cloud-instances/:id` | 更新实例（启用/停用监控） |
@@ -669,7 +687,19 @@ type DatabaseHandler struct {
 }
 ```
 
-### 5.4 前端 RDS 元信息去硬编码
+### 5.4 BillingHandler 重构
+
+现有 `BillingHandler` 直接从 `config.AliyunConfig` 读取 AK/SK 和 regions。重构后同样改为从数据库读取：
+
+```go
+type BillingHandler struct {
+    cloudStore *store.CloudStore
+    credStore  *store.CredentialStore
+    // ... 缓存逻辑不变
+}
+```
+
+### 5.5 前端 RDS 元信息去硬编码
 
 现有 `Databases/index.tsx` 中硬编码的 `RDS_INSTANCES` 映射表删除，改为从 API 获取：
 
@@ -805,7 +835,7 @@ export const getCloudAccounts = () => get<CloudAccount[]>('/cloud-accounts')
 export const addCloudAccount = (data: AddCloudAccountRequest) => post<CloudAccount>('/cloud-accounts', data)
 export const updateCloudAccount = (id: number, data: Partial<CloudAccount>) => put(`/cloud-accounts/${id}`, data)
 export const deleteCloudAccount = (id: number) => del(`/cloud-accounts/${id}`)
-export const verifyAK = (id: number) => post<VerifyResult>(`/cloud-accounts/${id}/verify`)
+export const verifyAK = (data: {access_key_id: string, access_key_secret: string}) => post<VerifyResult>('/cloud-accounts/verify', data)
 export const syncInstances = (id: number) => post(`/cloud-accounts/${id}/sync`)
 export const getCloudInstances = (accountId: number) => get<CloudInstance[]>(`/cloud-accounts/${accountId}/instances`)
 export const updateCloudInstance = (id: number, data: Partial<CloudInstance>) => put(`/cloud-instances/${id}`, data)
@@ -865,12 +895,13 @@ case 'cloud_sync_progress':
 
 | 文件 | 变更 |
 |------|------|
-| `server/internal/store/sqlite.go` | migrate() 新增 4 张表 + 索引 |
+| `server/internal/store/sqlite.go` | 启用 foreign_keys pragma + migrate() 新增 4 张表 + 索引 |
 | `server/internal/config/config.go` | 新增 EncryptionKey、AgentBinConfig |
-| `server/internal/grpc/handler.go` | Register 中回调 deployer.NotifyRegistered |
+| `server/internal/grpc/handler.go` | NewHandler 新增 onRegister 回调参数 |
 | `server/internal/collector/aliyun.go` | 重构数据源，支持从数据库读取 |
 | `server/internal/api/database_handler.go` | 重构，从 CloudStore 读取 RDS 列表 |
-| `server/internal/api/router.go` | 新增路由组 |
+| `server/internal/api/billing_handler.go` | 重构，从 CloudStore 读取账号 |
+| `server/internal/api/router.go` | 新增路由组，重构参数为 RouterDeps 结构体 |
 | `server/cmd/server/main.go` | 初始化新组件、旧配置迁移 |
 | `web/src/pages/Servers/index.tsx` | 添加「+ 添加服务器」按钮 |
 | `web/src/pages/Databases/index.tsx` | 添加「+ 添加云账号」按钮，去硬编码 |
@@ -883,11 +914,14 @@ case 'cloud_sync_progress':
 
 ## 10. 安全考量
 
-1. **凭据加密** — 所有敏感信息（密码、密钥、AK/SK）使用 AES-256-GCM 加密存储，master key 仅在 server.yaml 中
+1. **凭据加密** — 所有敏感信息（密码、密钥、AK/SK）使用 AES-256-GCM 加密存储，master key 仅在 server.yaml 或环境变量中
 2. **API 脱敏** — GET 凭据列表不返回敏感字段，只返回名称、类型、使用数
-3. **SSH 安全** — SSH 连接使用 `golang.org/x/crypto/ssh`，支持 host key 验证（首次连接信任，后续校验）
-4. **命令注入防护** — 所有 SSH 远端执行的命令使用模板生成，不拼接用户输入；agent.yaml 内容由后端生成
-5. **权限控制** — 所有接入管理 API 受 JWT 认证保护
+3. **请求体安全** — 生产环境应关闭 Gin Debug 模式（避免请求体中的密码出现在日志中）；前端提交密码后立即清除内存值
+4. **SSH 安全** — SSH 连接使用 `golang.org/x/crypto/ssh`，支持 host key 验证（首次连接信任，后续校验）；文件传输使用 SFTP 而非 shell echo（防注入 + 防 ARG_MAX 截断）
+5. **命令注入防护** — 所有 SSH 远端执行的命令使用模板生成，不拼接用户输入；agent.yaml 内容通过 SFTP 直接写入
+6. **权限控制** — 所有接入管理 API 受 JWT 认证保护
+7. **SQLite 外键约束** — 在连接串中启用 `_pragma=foreign_keys(1)`，确保 REFERENCES 和 ON DELETE CASCADE 实际生效。启用前需验证现有表（assets、probe_rules 等）的引用完整性
+8. **并发安全** — 部署操作使用 CAS（Compare-And-Swap）状态更新防止并发部署同一台服务器
 
 ---
 
@@ -909,3 +943,61 @@ case 'cloud_sync_progress':
 | `github.com/alibabacloud-go/ecs-20140526/v4` | ECS 实例发现（已有） |
 | `github.com/alibabacloud-go/cms-20190101/v2` | CloudMonitor 指标采集（已有） |
 | `crypto/aes` + `crypto/cipher` | AES-256-GCM 加密（标准库） |
+
+---
+
+## 12. RDS SDK 版本统一
+
+现有 `billing_handler.go` 使用 `github.com/alibabacloud-go/rds-20140815/v3`，本设计新增 `v6`。为避免同一 SDK 两个主版本共存导致类型冲突，统一升级到 `v6`，同时更新 `billing_handler.go` 的 import。
+
+---
+
+## 13. Router 重构
+
+现有 `SetupRouter` 已有 10 个参数，新增 3 个 handler 后会达到 13+。重构为传入结构体：
+
+```go
+type RouterDeps struct {
+    ServerStore     *store.ServerStore
+    Hub             *ws.Hub
+    MetricsProvider MetricsProvider
+    StaticDir       string
+    // Handlers
+    ProbeHandler        *ProbeHandler
+    AssetHandler        *AssetHandler
+    AuthHandler         *AuthHandler
+    DatabaseHandler     *DatabaseHandler
+    BillingHandler      *BillingHandler
+    AlertHandler        *AlertHandler
+    ManagedServerHandler *ManagedServerHandler
+    CloudHandler        *CloudHandler
+    CredentialHandler   *CredentialHandler
+}
+
+func SetupRouter(deps RouterDeps) *gin.Engine
+```
+
+---
+
+## 14. 服务器列表页展示增强
+
+`GET /api/v1/servers` 响应中新增 `source` 字段，标识服务器来源：
+
+| source 值 | 含义 |
+|-----------|------|
+| `agent` | Agent 自行注册（手动部署，未通过 UI） |
+| `managed` | 通过 UI 部署的 Agent |
+| `cloud` | 阿里云 ECS API 接入 |
+
+实现方式：`ServerHandler.List` 中 LEFT JOIN `managed_servers` 和 `cloud_instances` 表判断来源。
+
+---
+
+## 15. Future Work
+
+以下功能不在本次设计范围，但预留扩展点：
+
+1. **Agent 版本升级** — 通过 UI 对已部署的 Agent 进行远程升级（managed_servers 已有 `agent_version` 字段）
+2. **多云支持** — cloud_accounts 已预留 `provider` 字段，后续可扩展腾讯云、华为云
+3. **凭据轮换** — 定期自动轮换 SSH 密码或 AK/SK
+4. **批量部署** — 一次添加多台服务器并行安装 Agent
