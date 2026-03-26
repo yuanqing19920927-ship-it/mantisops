@@ -91,13 +91,26 @@ func main() {
 	dbHandler := api.NewDatabaseHandler(cfg.Aliyun.RDS, vmStore)
 
 	// Billing
-	billingHandler := api.NewBillingHandler(cfg.Aliyun, prober)
+	billingHandler := api.NewBillingHandler(cfg.Aliyun)
 
 	// Groups
 	groupHandler := api.NewGroupHandler(groupStore, serverStore)
 
 	// HTTP API
-	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, authHandler, dbHandler, billingHandler, alertHandler, groupHandler, groupStore, metricsProvider, cfg.Server.StaticDir)
+	router := api.SetupRouter(api.RouterDeps{
+		ServerStore:     serverStore,
+		GroupStore:      groupStore,
+		Hub:             hub,
+		MetricsProvider: metricsProvider,
+		StaticDir:       cfg.Server.StaticDir,
+		ProbeHandler:    probeHandler,
+		AssetHandler:    assetHandler,
+		AuthHandler:     authHandler,
+		DatabaseHandler: dbHandler,
+		BillingHandler:  billingHandler,
+		AlertHandler:    alertHandler,
+		GroupHandler:    groupHandler,
+	})
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
 		log.Fatalf("HTTP error: %v", err)

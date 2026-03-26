@@ -6,7 +6,27 @@ import (
 	"opsboard/server/internal/ws"
 )
 
-func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler, authHandler *AuthHandler, dbHandler *DatabaseHandler, billingHandler *BillingHandler, alertHandler *AlertHandler, groupHandler *GroupHandler, groupStore *store.GroupStore, metricsProvider MetricsProvider, staticDir string) *gin.Engine {
+// RouterDeps holds all dependencies for setting up the HTTP router.
+type RouterDeps struct {
+	ServerStore     *store.ServerStore
+	GroupStore      *store.GroupStore
+	Hub             *ws.Hub
+	MetricsProvider MetricsProvider
+	StaticDir       string
+	ProbeHandler    *ProbeHandler
+	AssetHandler    *AssetHandler
+	AuthHandler     *AuthHandler
+	DatabaseHandler *DatabaseHandler
+	BillingHandler  *BillingHandler
+	AlertHandler    *AlertHandler
+	GroupHandler    *GroupHandler
+	// Will be extended later with:
+	// CredentialHandler    *CredentialHandler
+	// ManagedServerHandler *ManagedServerHandler
+	// CloudHandler         *CloudHandler
+}
+
+func SetupRouter(deps RouterDeps) *gin.Engine {
 	r := gin.Default()
 
 	// CORS for dev
@@ -22,75 +42,75 @@ func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *Prob
 	})
 
 	// Public auth endpoint
-	r.POST("/api/v1/auth/login", authHandler.Login)
+	r.POST("/api/v1/auth/login", deps.AuthHandler.Login)
 
 	// Protected API group
 	v1 := r.Group("/api/v1")
-	v1.Use(authHandler.JWTMiddleware())
+	v1.Use(deps.AuthHandler.JWTMiddleware())
 	{
-		v1.GET("/auth/me", authHandler.Me)
+		v1.GET("/auth/me", deps.AuthHandler.Me)
 
-		dash := &DashboardHandler{serverStore: serverStore, metricsProvider: metricsProvider, groupStore: groupStore}
+		dash := &DashboardHandler{serverStore: deps.ServerStore, metricsProvider: deps.MetricsProvider, groupStore: deps.GroupStore}
 		v1.GET("/dashboard", dash.Overview)
 
-		srv := &ServerHandler{store: serverStore}
+		srv := &ServerHandler{store: deps.ServerStore}
 		v1.GET("/servers", srv.List)
 		v1.GET("/servers/:id", srv.Get)
 		v1.PUT("/servers/:id/name", srv.UpdateDisplayName)
-		v1.PUT("/servers/:id/group", groupHandler.SetServerGroup)
+		v1.PUT("/servers/:id/group", deps.GroupHandler.SetServerGroup)
 
 		// Groups
-		v1.GET("/groups", groupHandler.List)
-		v1.POST("/groups", groupHandler.Create)
-		v1.PUT("/groups/:id", groupHandler.Update)
-		v1.DELETE("/groups/:id", groupHandler.Delete)
+		v1.GET("/groups", deps.GroupHandler.List)
+		v1.POST("/groups", deps.GroupHandler.Create)
+		v1.PUT("/groups/:id", deps.GroupHandler.Update)
+		v1.DELETE("/groups/:id", deps.GroupHandler.Delete)
 
 		// Probes
-		v1.GET("/probes", probeHandler.List)
-		v1.POST("/probes", probeHandler.Create)
-		v1.PUT("/probes/:id", probeHandler.Update)
-		v1.DELETE("/probes/:id", probeHandler.Delete)
-		v1.GET("/probes/status", probeHandler.Status)
+		v1.GET("/probes", deps.ProbeHandler.List)
+		v1.POST("/probes", deps.ProbeHandler.Create)
+		v1.PUT("/probes/:id", deps.ProbeHandler.Update)
+		v1.DELETE("/probes/:id", deps.ProbeHandler.Delete)
+		v1.GET("/probes/status", deps.ProbeHandler.Status)
 
 		// Assets
-		v1.GET("/assets", assetHandler.List)
-		v1.POST("/assets", assetHandler.Create)
-		v1.PUT("/assets/:id", assetHandler.Update)
-		v1.DELETE("/assets/:id", assetHandler.Delete)
+		v1.GET("/assets", deps.AssetHandler.List)
+		v1.POST("/assets", deps.AssetHandler.Create)
+		v1.PUT("/assets/:id", deps.AssetHandler.Update)
+		v1.DELETE("/assets/:id", deps.AssetHandler.Delete)
 
 		// Databases (RDS)
-		v1.GET("/databases", dbHandler.List)
-		v1.GET("/databases/:id", dbHandler.Get)
+		v1.GET("/databases", deps.DatabaseHandler.List)
+		v1.GET("/databases/:id", deps.DatabaseHandler.Get)
 
 		// Billing
-		v1.GET("/billing", billingHandler.List)
+		v1.GET("/billing", deps.BillingHandler.List)
 
 		// Alerts
-		v1.GET("/alerts/rules", alertHandler.ListRules)
-		v1.POST("/alerts/rules", alertHandler.CreateRule)
-		v1.PUT("/alerts/rules/:id", alertHandler.UpdateRule)
-		v1.DELETE("/alerts/rules/:id", alertHandler.DeleteRule)
-		v1.GET("/alerts/events", alertHandler.ListEvents)
-		v1.GET("/alerts/stats", alertHandler.GetStats)
-		v1.PUT("/alerts/events/:id/ack", alertHandler.AckEvent)
-		v1.GET("/alerts/events/:id/notifications", alertHandler.GetEventNotifications)
-		v1.GET("/alerts/channels", alertHandler.ListChannels)
-		v1.POST("/alerts/channels", alertHandler.CreateChannel)
-		v1.PUT("/alerts/channels/:id", alertHandler.UpdateChannel)
-		v1.DELETE("/alerts/channels/:id", alertHandler.DeleteChannel)
-		v1.POST("/alerts/channels/:id/test", alertHandler.TestChannel)
+		v1.GET("/alerts/rules", deps.AlertHandler.ListRules)
+		v1.POST("/alerts/rules", deps.AlertHandler.CreateRule)
+		v1.PUT("/alerts/rules/:id", deps.AlertHandler.UpdateRule)
+		v1.DELETE("/alerts/rules/:id", deps.AlertHandler.DeleteRule)
+		v1.GET("/alerts/events", deps.AlertHandler.ListEvents)
+		v1.GET("/alerts/stats", deps.AlertHandler.GetStats)
+		v1.PUT("/alerts/events/:id/ack", deps.AlertHandler.AckEvent)
+		v1.GET("/alerts/events/:id/notifications", deps.AlertHandler.GetEventNotifications)
+		v1.GET("/alerts/channels", deps.AlertHandler.ListChannels)
+		v1.POST("/alerts/channels", deps.AlertHandler.CreateChannel)
+		v1.PUT("/alerts/channels/:id", deps.AlertHandler.UpdateChannel)
+		v1.DELETE("/alerts/channels/:id", deps.AlertHandler.DeleteChannel)
+		v1.POST("/alerts/channels/:id/test", deps.AlertHandler.TestChannel)
 	}
 
 	r.GET("/ws", func(c *gin.Context) {
-		hub.HandleWS(c.Writer, c.Request)
+		deps.Hub.HandleWS(c.Writer, c.Request)
 	})
 
 	// 静态文件服务（前端 SPA）
-	if staticDir != "" {
-		r.Static("/assets", staticDir+"/assets")
-		r.StaticFile("/favicon.svg", staticDir+"/favicon.svg")
+	if deps.StaticDir != "" {
+		r.Static("/assets", deps.StaticDir+"/assets")
+		r.StaticFile("/favicon.svg", deps.StaticDir+"/favicon.svg")
 		r.NoRoute(func(c *gin.Context) {
-			c.File(staticDir + "/index.html")
+			c.File(deps.StaticDir + "/index.html")
 		})
 	}
 
