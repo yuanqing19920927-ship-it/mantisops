@@ -1,0 +1,15 @@
+# Build stage
+FROM golang:1.22-alpine AS builder
+RUN apk add --no-cache gcc musl-dev
+WORKDIR /build
+COPY server/ ./server/
+COPY proto/ ./proto/
+WORKDIR /build/server
+RUN CGO_ENABLED=1 go build -o /opsboard-server ./cmd/server/
+
+# Runtime stage
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates sqlite-libs
+COPY --from=builder /opsboard-server /usr/local/bin/opsboard-server
+WORKDIR /app
+CMD ["opsboard-server", "-config", "/app/configs/server.yaml"]

@@ -1,0 +1,20 @@
+server:
+  http_addr: "127.0.0.1:3100"
+  grpc_addr: "0.0.0.0:3101"
+  grpc_tls_addr: "0.0.0.0:3102"
+  grpc_tls_cert: ""
+  grpc_tls_key: ""
+  psk_token: "opsboard-dev-token"
+
+victoria_metrics:
+  url: "http://127.0.0.1:8428"
+
+sqlite:
+  path: "./data/opsboard.db"
+
+probe:
+  interval: 30
+  timeout: 5
+
+websocket:
+  ping_interval: 15

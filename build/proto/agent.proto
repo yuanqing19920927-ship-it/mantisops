@@ -1,0 +1,114 @@
+syntax = "proto3";
+package opsboard;
+option go_package = "./gen";
+
+service AgentService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc ReportMetrics(MetricsPayload) returns (ReportResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+message RegisterRequest {
+  string host_id = 1;
+  string hostname = 2;
+  string os = 3;
+  string kernel = 4;
+  string arch = 5;
+  int64 boot_time = 6;
+  string agent_version = 7;
+  repeated string ip_addresses = 8;
+  int32 cpu_cores = 9;
+  string cpu_model = 10;
+  uint64 memory_total = 11;
+  uint64 disk_total = 12;
+  string gpu_model = 13;
+  uint64 gpu_memory = 14;
+}
+
+message RegisterResponse {
+  bool accepted = 1;
+  int32 report_interval = 2;
+}
+
+message MetricsPayload {
+  string host_id = 1;
+  int64 timestamp = 2;
+  CpuMetrics cpu = 3;
+  MemoryMetrics memory = 4;
+  repeated DiskMetrics disks = 5;
+  repeated NetworkMetrics networks = 6;
+  repeated DockerMetrics containers = 7;
+  GpuMetrics gpu = 8;
+}
+
+message CpuMetrics {
+  double usage_percent = 1;
+  double load1 = 2;
+  double load5 = 3;
+  double load15 = 4;
+  int32 cores = 5;
+}
+
+message MemoryMetrics {
+  uint64 total = 1;
+  uint64 used = 2;
+  uint64 available = 3;
+  double usage_percent = 4;
+  uint64 swap_total = 5;
+  uint64 swap_used = 6;
+}
+
+message DiskMetrics {
+  string mount_point = 1;
+  string device = 2;
+  string fs_type = 3;
+  uint64 total = 4;
+  uint64 used = 5;
+  double usage_percent = 6;
+  double read_bytes_per_sec = 7;
+  double write_bytes_per_sec = 8;
+}
+
+message NetworkMetrics {
+  string interface = 1;
+  double rx_bytes_per_sec = 2;
+  double tx_bytes_per_sec = 3;
+  uint64 rx_bytes_total = 4;
+  uint64 tx_bytes_total = 5;
+}
+
+message DockerMetrics {
+  string container_id = 1;
+  string name = 2;
+  string image = 3;
+  string state = 4;
+  string status = 5;
+  double cpu_percent = 6;
+  uint64 memory_usage = 7;
+  uint64 memory_limit = 8;
+  repeated string ports = 9;
+}
+
+message GpuMetrics {
+  string name = 1;
+  double usage_percent = 2;
+  uint64 memory_used = 3;
+  uint64 memory_total = 4;
+  double temperature = 5;
+  double power_usage = 6;
+}
+
+message ReportResponse {
+  bool ok = 1;
+}
+
+message HeartbeatRequest {
+  string host_id = 1;
+  string agent_version = 2;
+  int64 uptime = 3;
+}
+
+message HeartbeatResponse {
+  int64 server_time = 1;
+  int32 report_interval = 2;
+}

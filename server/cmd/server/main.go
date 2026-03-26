@@ -62,7 +62,7 @@ func main() {
 	}()
 
 	// HTTP API
-	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler)
+	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, cfg.Server.StaticDir)
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
 		log.Fatalf("HTTP error: %v", err)

@@ -6,7 +6,7 @@ import (
 	"opsboard/server/internal/ws"
 )
 
-func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler) *gin.Engine {
+func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler, staticDir string) *gin.Engine {
 	r := gin.Default()
 
 	// CORS for dev
@@ -47,6 +47,15 @@ func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *Prob
 	r.GET("/ws", func(c *gin.Context) {
 		hub.HandleWS(c.Writer, c.Request)
 	})
+
+	// 静态文件服务（前端 SPA）
+	if staticDir != "" {
+		r.Static("/assets", staticDir+"/assets")
+		r.StaticFile("/favicon.svg", staticDir+"/favicon.svg")
+		r.NoRoute(func(c *gin.Context) {
+			c.File(staticDir + "/index.html")
+		})
+	}
 
 	return r
 }

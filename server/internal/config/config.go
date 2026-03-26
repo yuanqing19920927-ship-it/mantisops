@@ -21,6 +21,7 @@ type ServerConfig struct {
 	TLSCert     string `yaml:"grpc_tls_cert"`
 	TLSKey      string `yaml:"grpc_tls_key"`
 	PSKToken    string `yaml:"psk_token"`
+	StaticDir   string `yaml:"static_dir"`
 }
 
 type VictoriaConfig struct {
