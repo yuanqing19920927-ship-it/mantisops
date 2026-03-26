@@ -3,6 +3,26 @@ import type { DashboardData, Server, ProbeResult } from '../types'
 
 const api = axios.create({ baseURL: '/api/v1' })
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('username')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
 export async function getDashboard(): Promise<DashboardData> {
   const { data } = await api.get('/dashboard')
   return data
@@ -18,14 +38,21 @@ export async function getServer(id: string): Promise<Server> {
   return data
 }
 
+export async function updateServerName(id: string, displayName: string): Promise<void> {
+  await api.put(`/servers/${id}/name`, { display_name: displayName })
+}
+
 // Probes
 export interface ProbeRule {
   id?: number
-  server_id: number
+  server_id: number | null
   name: string
   host: string
   port: number
-  protocol: string
+  protocol: 'tcp' | 'http' | 'https'
+  url: string
+  expect_status: number
+  expect_body: string
   interval_sec: number
   timeout_sec: number
   enabled: boolean
@@ -86,6 +113,41 @@ export async function updateAsset(id: number, asset: AssetInfo): Promise<AssetIn
 
 export async function deleteAsset(id: number): Promise<void> {
   await api.delete(`/assets/${id}`)
+}
+
+// Billing
+export interface BillingItem {
+  type: string
+  id: string
+  name: string
+  engine: string
+  spec: string
+  charge_type: string
+  expire_date: string
+  days_left: number
+  status: string
+}
+
+export async function getBilling(): Promise<BillingItem[]> {
+  const { data } = await api.get('/billing')
+  return data || []
+}
+
+// Databases (RDS)
+export interface RDSInfo {
+  host_id: string
+  name: string
+  metrics: Record<string, number>
+}
+
+export async function getDatabases(): Promise<RDSInfo[]> {
+  const { data } = await api.get('/databases')
+  return data || []
+}
+
+export async function getDatabase(id: string): Promise<RDSInfo> {
+  const { data } = await api.get(`/databases/${id}`)
+  return data
 }
 
 export default api

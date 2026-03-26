@@ -101,6 +101,10 @@ export interface ProbeResult {
   latency_ms: number
   checked_at: number
   error?: string
+  http_status?: number
+  ssl_expiry_days?: number
+  ssl_issuer?: string
+  ssl_expiry_date?: string
 }
 
 // Alert types
