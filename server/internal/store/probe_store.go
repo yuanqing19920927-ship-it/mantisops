@@ -15,9 +15,10 @@ func NewProbeStore(db *sql.DB) *ProbeStore {
 
 func (s *ProbeStore) Create(rule *model.ProbeRule) (int64, error) {
 	result, err := s.db.Exec(
-		`INSERT INTO probe_rules (server_id, name, host, port, protocol, interval_sec, timeout_sec, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO probe_rules (server_id, name, host, port, protocol, url, expect_status, expect_body, interval_sec, timeout_sec, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		rule.ServerID, rule.Name, rule.Host, rule.Port, rule.Protocol,
+		rule.URL, rule.ExpectStatus, rule.ExpectBody,
 		rule.IntervalSec, rule.TimeoutSec, rule.Enabled)
 	if err != nil {
 		return 0, err
@@ -26,7 +27,10 @@ func (s *ProbeStore) Create(rule *model.ProbeRule) (int64, error) {
 }
 
 func (s *ProbeStore) List() ([]model.ProbeRule, error) {
-	rows, err := s.db.Query(`SELECT id, server_id, name, host, port, COALESCE(protocol,'tcp'), COALESCE(interval_sec,30), COALESCE(timeout_sec,5), enabled FROM probe_rules ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, server_id, name, host, port,
+		COALESCE(protocol,'tcp'), COALESCE(url,''), COALESCE(expect_status,200),
+		COALESCE(expect_body,''), COALESCE(interval_sec,30), COALESCE(timeout_sec,5), enabled
+		FROM probe_rules ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -34,8 +38,15 @@ func (s *ProbeStore) List() ([]model.ProbeRule, error) {
 	var rules []model.ProbeRule
 	for rows.Next() {
 		var r model.ProbeRule
-		if err := rows.Scan(&r.ID, &r.ServerID, &r.Name, &r.Host, &r.Port, &r.Protocol, &r.IntervalSec, &r.TimeoutSec, &r.Enabled); err != nil {
+		var serverID sql.NullInt64
+		if err := rows.Scan(&r.ID, &serverID, &r.Name, &r.Host, &r.Port,
+			&r.Protocol, &r.URL, &r.ExpectStatus, &r.ExpectBody,
+			&r.IntervalSec, &r.TimeoutSec, &r.Enabled); err != nil {
 			return nil, err
+		}
+		if serverID.Valid {
+			sid := int(serverID.Int64)
+			r.ServerID = &sid
 		}
 		rules = append(rules, r)
 	}
@@ -43,7 +54,10 @@ func (s *ProbeStore) List() ([]model.ProbeRule, error) {
 }
 
 func (s *ProbeStore) ListEnabled() ([]model.ProbeRule, error) {
-	rows, err := s.db.Query(`SELECT id, server_id, name, host, port, COALESCE(protocol,'tcp'), COALESCE(interval_sec,30), COALESCE(timeout_sec,5), enabled FROM probe_rules WHERE enabled=1 ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, server_id, name, host, port,
+		COALESCE(protocol,'tcp'), COALESCE(url,''), COALESCE(expect_status,200),
+		COALESCE(expect_body,''), COALESCE(interval_sec,30), COALESCE(timeout_sec,5), enabled
+		FROM probe_rules WHERE enabled=1 ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +65,15 @@ func (s *ProbeStore) ListEnabled() ([]model.ProbeRule, error) {
 	var rules []model.ProbeRule
 	for rows.Next() {
 		var r model.ProbeRule
-		if err := rows.Scan(&r.ID, &r.ServerID, &r.Name, &r.Host, &r.Port, &r.Protocol, &r.IntervalSec, &r.TimeoutSec, &r.Enabled); err != nil {
+		var serverID sql.NullInt64
+		if err := rows.Scan(&r.ID, &serverID, &r.Name, &r.Host, &r.Port,
+			&r.Protocol, &r.URL, &r.ExpectStatus, &r.ExpectBody,
+			&r.IntervalSec, &r.TimeoutSec, &r.Enabled); err != nil {
 			return nil, err
+		}
+		if serverID.Valid {
+			sid := int(serverID.Int64)
+			r.ServerID = &sid
 		}
 		rules = append(rules, r)
 	}
@@ -61,8 +82,10 @@ func (s *ProbeStore) ListEnabled() ([]model.ProbeRule, error) {
 
 func (s *ProbeStore) Update(rule *model.ProbeRule) error {
 	_, err := s.db.Exec(
-		`UPDATE probe_rules SET name=?, host=?, port=?, protocol=?, interval_sec=?, timeout_sec=?, enabled=? WHERE id=?`,
-		rule.Name, rule.Host, rule.Port, rule.Protocol, rule.IntervalSec, rule.TimeoutSec, rule.Enabled, rule.ID)
+		`UPDATE probe_rules SET server_id=?, name=?, host=?, port=?, protocol=?, url=?, expect_status=?, expect_body=?, interval_sec=?, timeout_sec=?, enabled=? WHERE id=?`,
+		rule.ServerID, rule.Name, rule.Host, rule.Port, rule.Protocol,
+		rule.URL, rule.ExpectStatus, rule.ExpectBody,
+		rule.IntervalSec, rule.TimeoutSec, rule.Enabled, rule.ID)
 	return err
 }
 
