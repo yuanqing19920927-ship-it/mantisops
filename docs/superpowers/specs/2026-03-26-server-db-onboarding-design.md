@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS managed_servers (
     ssh_user      TEXT NOT NULL,
     credential_id INTEGER NOT NULL REFERENCES credentials(id),
     detected_arch TEXT DEFAULT '',         -- 检测到的目标架构 (amd64/arm64)
+    ssh_host_key  TEXT DEFAULT '',         -- TOFU: 首次连接记录的 host public key (authorized_keys 格式)
+    install_options TEXT DEFAULT '{}',     -- JSON: {"agent_id":"","collect_interval":5,"docker":true,"gpu":false}
     install_state TEXT DEFAULT 'pending',
     install_error TEXT DEFAULT '',
     agent_host_id TEXT DEFAULT '',
@@ -118,7 +120,7 @@ CREATE TABLE IF NOT EXISTS cloud_instances (
     spec             TEXT DEFAULT '',         -- 实例规格
     engine           TEXT DEFAULT '',         -- RDS: "MySQL 8.0" 等
     endpoint         TEXT DEFAULT '',         -- RDS 连接地址
-    monitored        INTEGER DEFAULT 1,
+    monitored        INTEGER DEFAULT 0,      -- 发现时默认关闭，用户确认接入后设为 1
     extra            TEXT DEFAULT '{}',       -- JSON 扩展字段
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -349,11 +351,39 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
 |------|------|------|
 | GET | `/api/v1/managed-servers` | 列出所有托管服务器 |
 | POST | `/api/v1/managed-servers` | 添加托管服务器（保存信息，不立即安装）|
-| POST | `/api/v1/managed-servers/:id/test` | 测试 SSH 连通性 |
+| POST | `/api/v1/managed-servers/test-connection` | **Dry-run SSH 测试**（不落库，直接用表单 payload 测试连通性） |
 | POST | `/api/v1/managed-servers/:id/deploy` | 触发 Agent 安装 |
 | POST | `/api/v1/managed-servers/:id/retry` | 从失败状态重试安装 |
-| DELETE | `/api/v1/managed-servers/:id` | 删除托管服务器记录 |
+| DELETE | `/api/v1/managed-servers/:id` | 删除托管服务器记录（同时删关联凭据如无其他引用） |
 | POST | `/api/v1/managed-servers/:id/uninstall` | 远程卸载 Agent |
+
+**POST `/api/v1/managed-servers/test-connection` 请求体：**
+
+用户在填表阶段点击「测试连接」时调用，不创建任何数据库记录，纯粹测试 SSH 连通性并返回结果。
+
+```json
+{
+    "host": "192.168.10.62",
+    "ssh_port": 22,
+    "ssh_user": "yuanqing",
+    "auth_type": "ssh_password",
+    "password": "qw159753"
+}
+```
+
+**响应：**
+
+```json
+{
+    "success": true,
+    "latency_ms": 23,
+    "host_key": "ssh-ed25519 AAAAC3Nz...",
+    "arch": "x86_64",
+    "os": "Debian 13"
+}
+```
+
+前端拿到 `host_key` 后可以展示给用户确认（TOFU），然后连同表单数据一起提交到 `POST /managed-servers` 正式保存。
 
 **POST `/api/v1/managed-servers` 请求体：**
 
@@ -440,7 +470,7 @@ func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Re
 │    ✅ CMS DescribeMetricLast — 可用                       │
 │    ✅ RDS DescribeDBInstances — 可用                      │
 └──────────────────────────────────────────────────────────┘
-        │ 点击「保存」→ 自动触发实例发现
+        │ 点击「保存」→ 自动触发实例发现（discovered, monitored=0）
         ▼
 ┌─ 实例发现结果 ──────────────────────────────────────────┐
 │  发现 14 台 ECS 实例 + 6 个 RDS 实例                     │
@@ -465,6 +495,8 @@ func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Re
 │  路径：云监控 → 主机监控 → 安装/升级插件                   │
 │                                                           │
 │            [全选] [全不选]  [确认接入]                     │
+│  (点击「确认接入」后，勾选的实例 monitored 设为 1，         │
+│   并注册 ECS 到 servers 表，开始采集)                      │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -528,7 +560,17 @@ type Manager struct {
 func (m *Manager) Verify(ak, sk string) (*VerifyResult, error)
 
 // Sync 同步实例列表（自动发现 or 验证手动输入的实例）
+// 发现的实例以 monitored=0 入库，等用户在 UI 确认后才启用
 func (m *Manager) Sync(accountID int) error
+
+// ConfirmInstances 用户确认接入：将指定实例 monitored 设为 1，ECS 类型注册到 servers 表
+func (m *Manager) ConfirmInstances(instanceIDs []int) error
+
+// DeleteAccount 删除云账号：级联删除 cloud_instances + 清理 servers 表中对应 ECS 记录
+func (m *Manager) DeleteAccount(accountID int) error
+
+// DeleteInstance 删除单个实例：ECS 类型同时删除 servers 表中 host_id 匹配的行
+func (m *Manager) DeleteInstance(instanceID int) error
 
 // DiscoverECS 发现所有 ECS 实例
 func (m *Manager) DiscoverECS(ak, sk string, regionIDs []string) ([]CloudInstance, error)
@@ -591,13 +633,14 @@ RDS: "rds-{instance_id}"       例: "rds-rm-bp1cvllbx3442lf0p"
 | GET | `/api/v1/cloud-accounts` | 列出所有云账号 |
 | POST | `/api/v1/cloud-accounts` | 添加云账号 |
 | PUT | `/api/v1/cloud-accounts/:id` | 更新云账号 |
-| DELETE | `/api/v1/cloud-accounts/:id` | 删除云账号（级联删除实例） |
+| DELETE | `/api/v1/cloud-accounts/:id` | 删除云账号（级联删除实例 + 清理 servers 表中对应的 ECS 记录） |
 | POST | `/api/v1/cloud-accounts/verify` | 验证 AK 有效性 + 权限检查（无需先创建账号） |
 | POST | `/api/v1/cloud-accounts/:id/sync` | 触发实例同步 |
 | GET | `/api/v1/cloud-accounts/:id/instances` | 获取该账号下的实例列表 |
+| POST | `/api/v1/cloud-instances/confirm` | **批量确认接入**：将勾选的实例 monitored 设为 1，ECS 注册到 servers 表 |
 | PUT | `/api/v1/cloud-instances/:id` | 更新实例（启用/停用监控） |
 | POST | `/api/v1/cloud-instances` | 手动添加实例 |
-| DELETE | `/api/v1/cloud-instances/:id` | 删除实例 |
+| DELETE | `/api/v1/cloud-instances/:id` | 删除实例（ECS 类型同时删除 servers 表中 host_id 匹配的行） |
 
 **POST `/api/v1/cloud-accounts` 请求体：**
 
@@ -652,7 +695,10 @@ type AliyunCollector struct {
 }
 
 func (ac *AliyunCollector) loadInstances() (ecsInstances []ECSTarget, rdsInstances []RDSTarget) {
-    // 1. 从数据库加载所有 synced 状态、monitored=1 的实例
+    // 1. 从数据库加载所有 synced 或 partial 状态账号下、monitored=1 的实例
+    //    SELECT ci.* FROM cloud_instances ci
+    //    JOIN cloud_accounts ca ON ci.cloud_account_id = ca.id
+    //    WHERE ca.sync_state IN ('synced','partial') AND ci.monitored = 1
     // 2. 如果数据库为空，从 fallbackCfg 加载
     // 3. 每 60 秒刷新一次（支持运行时动态增减实例）
 }
@@ -824,7 +870,7 @@ type AgentBinConfig struct {
 // 托管服务器
 export const getManagedServers = () => get<ManagedServer[]>('/managed-servers')
 export const addManagedServer = (data: AddServerRequest) => post<ManagedServer>('/managed-servers', data)
-export const testSSH = (id: number) => post<SSHTestResult>(`/managed-servers/${id}/test`)
+export const testSSHConnection = (data: SSHTestRequest) => post<SSHTestResult>('/managed-servers/test-connection', data) // dry-run，不落库
 export const deployAgent = (id: number) => post(`/managed-servers/${id}/deploy`)
 export const retryDeploy = (id: number) => post(`/managed-servers/${id}/retry`)
 export const deleteManagedServer = (id: number) => del(`/managed-servers/${id}`)
@@ -838,6 +884,7 @@ export const deleteCloudAccount = (id: number) => del(`/cloud-accounts/${id}`)
 export const verifyAK = (data: {access_key_id: string, access_key_secret: string}) => post<VerifyResult>('/cloud-accounts/verify', data)
 export const syncInstances = (id: number) => post(`/cloud-accounts/${id}/sync`)
 export const getCloudInstances = (accountId: number) => get<CloudInstance[]>(`/cloud-accounts/${accountId}/instances`)
+export const confirmCloudInstances = (ids: number[]) => post('/cloud-instances/confirm', { instance_ids: ids })
 export const updateCloudInstance = (id: number, data: Partial<CloudInstance>) => put(`/cloud-instances/${id}`, data)
 export const addCloudInstance = (data: AddInstanceRequest) => post<CloudInstance>('/cloud-instances', data)
 export const deleteCloudInstance = (id: number) => del(`/cloud-instances/${id}`)
@@ -917,7 +964,7 @@ case 'cloud_sync_progress':
 1. **凭据加密** — 所有敏感信息（密码、密钥、AK/SK）使用 AES-256-GCM 加密存储，master key 仅在 server.yaml 或环境变量中
 2. **API 脱敏** — GET 凭据列表不返回敏感字段，只返回名称、类型、使用数
 3. **请求体安全** — 生产环境应关闭 Gin Debug 模式（避免请求体中的密码出现在日志中）；前端提交密码后立即清除内存值
-4. **SSH 安全** — SSH 连接使用 `golang.org/x/crypto/ssh`，支持 host key 验证（首次连接信任，后续校验）；文件传输使用 SFTP 而非 shell echo（防注入 + 防 ARG_MAX 截断）
+4. **SSH 安全** — SSH 连接使用 `golang.org/x/crypto/ssh`；TOFU host key 验证：dry-run test-connection 返回 host_key，用户确认后存入 `managed_servers.ssh_host_key`，后续所有连接校验 host key 匹配，不匹配则拒绝连接并报错。文件传输使用 SFTP 而非 shell echo（防注入 + 防 ARG_MAX 截断）
 5. **命令注入防护** — 所有 SSH 远端执行的命令使用模板生成，不拼接用户输入；agent.yaml 内容通过 SFTP 直接写入
 6. **权限控制** — 所有接入管理 API 受 JWT 认证保护
 7. **SQLite 外键约束** — 在连接串中启用 `_pragma=foreign_keys(1)`，确保 REFERENCES 和 ON DELETE CASCADE 实际生效。启用前需验证现有表（assets、probe_rules 等）的引用完整性
