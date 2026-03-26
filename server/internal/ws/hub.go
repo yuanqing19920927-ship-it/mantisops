@@ -13,13 +13,25 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// client wraps a websocket conn with its own write mutex
+type client struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (c *client) writeMessage(msgType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(msgType, data)
+}
+
 type Hub struct {
 	mu      sync.RWMutex
-	clients map[*websocket.Conn]bool
+	clients map[*client]bool
 }
 
 func NewHub() *Hub {
-	return &Hub{clients: make(map[*websocket.Conn]bool)}
+	return &Hub{clients: make(map[*client]bool)}
 }
 
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
@@ -28,14 +40,15 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ws upgrade error: %v", err)
 		return
 	}
+	c := &client{conn: conn}
 	h.mu.Lock()
-	h.clients[conn] = true
+	h.clients[c] = true
 	h.mu.Unlock()
 
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			h.mu.Lock()
-			delete(h.clients, conn)
+			delete(h.clients, c)
 			h.mu.Unlock()
 			conn.Close()
 			break
@@ -50,23 +63,23 @@ func (h *Hub) BroadcastJSON(msg interface{}) {
 	}
 
 	h.mu.RLock()
-	targets := make([]*websocket.Conn, 0, len(h.clients))
-	for conn := range h.clients {
-		targets = append(targets, conn)
+	targets := make([]*client, 0, len(h.clients))
+	for c := range h.clients {
+		targets = append(targets, c)
 	}
 	h.mu.RUnlock()
 
-	var failed []*websocket.Conn
-	for _, conn := range targets {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			failed = append(failed, conn)
+	var failed []*client
+	for _, c := range targets {
+		if err := c.writeMessage(websocket.TextMessage, data); err != nil {
+			failed = append(failed, c)
 		}
 	}
 	if len(failed) > 0 {
 		h.mu.Lock()
-		for _, conn := range failed {
-			delete(h.clients, conn)
-			conn.Close()
+		for _, c := range failed {
+			delete(h.clients, c)
+			c.conn.Close()
 		}
 		h.mu.Unlock()
 	}
