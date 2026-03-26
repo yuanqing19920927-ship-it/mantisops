@@ -90,7 +90,7 @@ func main() {
 	dbHandler := api.NewDatabaseHandler(cfg.Aliyun.RDS, vmStore)
 
 	// Billing
-	billingHandler := api.NewBillingHandler(cfg.Aliyun)
+	billingHandler := api.NewBillingHandler(cfg.Aliyun, prober)
 
 	// HTTP API
 	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, authHandler, dbHandler, billingHandler, alertHandler, metricsProvider, cfg.Server.StaticDir)
