@@ -3,20 +3,29 @@ package collector
 import (
 	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	pb "opsboard/server/proto/gen"
 	"opsboard/server/internal/store"
 	"opsboard/server/internal/ws"
 )
 
+type cachedMetrics struct {
+	payload   *pb.MetricsPayload
+	updatedAt time.Time
+}
+
 type MetricsCollector struct {
 	vm          *store.VictoriaStore
 	hub         *ws.Hub
 	serverStore *store.ServerStore
+	mu          sync.RWMutex
+	cache       map[string]*cachedMetrics
 }
 
 func NewMetricsCollector(vm *store.VictoriaStore, hub *ws.Hub, ss *store.ServerStore) *MetricsCollector {
-	return &MetricsCollector{vm: vm, hub: hub, serverStore: ss}
+	return &MetricsCollector{vm: vm, hub: hub, serverStore: ss, cache: make(map[string]*cachedMetrics)}
 }
 
 func (m *MetricsCollector) Handle(hostID string, payload *pb.MetricsPayload) {
@@ -86,4 +95,30 @@ func (m *MetricsCollector) Handle(hostID string, payload *pb.MetricsPayload) {
 		"host_id": hostID,
 		"data":    payload,
 	})
+
+	m.mu.Lock()
+	m.cache[hostID] = &cachedMetrics{payload: payload, updatedAt: time.Now()}
+	m.mu.Unlock()
+}
+
+const FreshnessTTL = 120 * time.Second
+
+func (m *MetricsCollector) GetLatestMetrics(hostID string) *pb.MetricsPayload {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cm, ok := m.cache[hostID]
+	if !ok || time.Since(cm.updatedAt) > FreshnessTTL {
+		return nil
+	}
+	return cm.payload
+}
+
+func (m *MetricsCollector) GetAllCachedHosts() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	hosts := make([]string, 0, len(m.cache))
+	for k := range m.cache {
+		hosts = append(hosts, k)
+	}
+	return hosts
 }
