@@ -302,7 +302,11 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
     // 4. installing: 配置 + systemd + 启动
     d.updateState(managed.ID, "installing", "")
 
-    agentID := generateAgentID(managed.Host)  // 如 "srv-62-zentao"
+    opts := parseInstallOptions(managed.InstallOptions)  // 从 JSON 解析
+    agentID := opts.AgentID
+    if agentID == "" {
+        agentID = generateAgentID(managed.Host)  // 仅在用户未自定义时自动生成，如 "srv-62-zentao"
+    }
     agentYAML := generateAgentConfig(d.grpcAddr, d.pskToken, agentID, managed.Options)
     // 通过 SFTP 写配置到远端（避免 shell echo 注入风险和 ARG_MAX 限制）
     client.Execute("sudo mkdir -p /etc/opsboard")
@@ -397,6 +401,7 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
         "type": "ssh_password",
         "data": { "password": "qw159753" }
     },
+    "host_key": "ssh-ed25519 AAAAC3Nz...",
     "options": {
         "agent_id": "",
         "collect_interval": 5,
@@ -406,6 +411,8 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
 }
 ```
 
+- `host_key`：来自 `test-connection` dry-run 的返回值，用户确认后原样回传。后端存入 `managed_servers.ssh_host_key`，后续所有 SSH 连接使用此 key 校验目标主机身份。**后端不会在保存时重新探测**，直接信任前端传回的值（因为它来自用户确认过的 dry-run 结果）。
+
 也可复用已有凭据：
 
 ```json
@@ -414,6 +421,7 @@ func (d *Deployer) runDeploy(managed *ManagedServer) {
     "ssh_port": 22,
     "ssh_user": "yuanqing",
     "credential_id": 1,
+    "host_key": "ssh-ed25519 AAAAC3Nz...",
     "options": { "docker": false, "gpu": false }
 }
 ```
@@ -566,11 +574,19 @@ func (m *Manager) Sync(accountID int) error
 // ConfirmInstances 用户确认接入：将指定实例 monitored 设为 1，ECS 类型注册到 servers 表
 func (m *Manager) ConfirmInstances(instanceIDs []int) error
 
-// DeleteAccount 删除云账号：级联删除 cloud_instances + 清理 servers 表中对应 ECS 记录
-func (m *Manager) DeleteAccount(accountID int) error
+// DeleteAccount 删除云账号。处理顺序：
+//   1. 查出该账号下所有 ECS 实例的 host_id
+//   2. 对每个 host_id，检查 servers 表中是否存在对应行
+//   3. 若存在，先删除 assets 和 probe_rules 中引用该 server_id 的行
+//   4. 再删除 servers 行
+//   5. 最后删除 cloud_instances（由 ON DELETE CASCADE 自动处理）和 cloud_account
+//   全部在一个事务中完成。如果该云主机上有资产或探测规则，API 返回确认提示：
+//   "该账号下的 N 台 ECS 服务器关联了 M 条资产和 K 条探测规则，删除后一并清除。确认？"
+//   前端收到提示后弹二次确认对话框，带 ?force=true 参数重新请求。
+func (m *Manager) DeleteAccount(accountID int, force bool) error
 
-// DeleteInstance 删除单个实例：ECS 类型同时删除 servers 表中 host_id 匹配的行
-func (m *Manager) DeleteInstance(instanceID int) error
+// DeleteInstance 删除单个实例，逻辑同上（事务内级联清理 assets/probe_rules/servers）
+func (m *Manager) DeleteInstance(instanceID int, force bool) error
 
 // DiscoverECS 发现所有 ECS 实例
 func (m *Manager) DiscoverECS(ak, sk string, regionIDs []string) ([]CloudInstance, error)
@@ -633,14 +649,14 @@ RDS: "rds-{instance_id}"       例: "rds-rm-bp1cvllbx3442lf0p"
 | GET | `/api/v1/cloud-accounts` | 列出所有云账号 |
 | POST | `/api/v1/cloud-accounts` | 添加云账号 |
 | PUT | `/api/v1/cloud-accounts/:id` | 更新云账号 |
-| DELETE | `/api/v1/cloud-accounts/:id` | 删除云账号（级联删除实例 + 清理 servers 表中对应的 ECS 记录） |
+| DELETE | `/api/v1/cloud-accounts/:id` | 删除云账号。无 `?force=true` 时返回影响摘要（关联资产/探测规则数）；带 `?force=true` 时事务内级联删除 cloud_instances → assets/probe_rules → servers |
 | POST | `/api/v1/cloud-accounts/verify` | 验证 AK 有效性 + 权限检查（无需先创建账号） |
 | POST | `/api/v1/cloud-accounts/:id/sync` | 触发实例同步 |
 | GET | `/api/v1/cloud-accounts/:id/instances` | 获取该账号下的实例列表 |
 | POST | `/api/v1/cloud-instances/confirm` | **批量确认接入**：将勾选的实例 monitored 设为 1，ECS 注册到 servers 表 |
 | PUT | `/api/v1/cloud-instances/:id` | 更新实例（启用/停用监控） |
 | POST | `/api/v1/cloud-instances` | 手动添加实例 |
-| DELETE | `/api/v1/cloud-instances/:id` | 删除实例（ECS 类型同时删除 servers 表中 host_id 匹配的行） |
+| DELETE | `/api/v1/cloud-instances/:id` | 删除实例。同 DELETE cloud-accounts 逻辑：检查关联 → 摘要/force 二段式 |
 
 **POST `/api/v1/cloud-accounts` 请求体：**
 
@@ -714,9 +730,11 @@ func (ac *AliyunCollector) migrateFromConfig(cfg config.AliyunConfig) error {
     // 2. 如果为空且 cfg 有内容：
     //    a. 创建 credential (type=aliyun_ak, 加密存储 AK/SK)
     //    b. 创建 cloud_account (name="从配置文件导入", auto_discover=false)
-    //    c. 为每个 cfg.Instances 创建 cloud_instance (type=ecs)
-    //    d. 为每个 cfg.RDS 创建 cloud_instance (type=rds)
+    //    c. 为每个 cfg.Instances 创建 cloud_instance (type=ecs, monitored=1)
+    //    d. 为每个 cfg.RDS 创建 cloud_instance (type=rds, monitored=1)
     //    e. 设置 sync_state=synced
+    //    注意：导入的实例直接设 monitored=1（区别于自动发现的默认值 0），
+    //    因为这些实例是用户此前已确认使用的，迁移不应中断现有监控。
     // 3. 记录日志: "已从 server.yaml 导入 N 个 ECS + M 个 RDS 实例"
 }
 ```
