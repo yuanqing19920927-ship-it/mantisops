@@ -1,31 +1,65 @@
 import { useEffect, useRef } from 'react'
 import { useServerStore } from '../stores/serverStore'
+import { useAlertStore } from '../stores/alertStore'
+
+let globalWs: WebSocket | null = null
+let refCount = 0
 
 export function useWebSocket() {
-  const wsRef = useRef<WebSocket | null>(null)
   const updateMetrics = useServerStore((s) => s.updateMetrics)
+  const updateMetricsRef = useRef(updateMetrics)
+  updateMetricsRef.current = updateMetrics
+
+  const addAlert = useAlertStore((s) => s.addEvent)
+  const addAlertRef = useRef(addAlert)
+  addAlertRef.current = addAlert
+
+  const resolveAlert = useAlertStore((s) => s.resolveEvent)
+  const resolveAlertRef = useRef(resolveAlert)
+  resolveAlertRef.current = resolveAlert
+
+  const silenceAlert = useAlertStore((s) => s.silenceEvent)
+  const silenceAlertRef = useRef(silenceAlert)
+  silenceAlertRef.current = silenceAlert
 
   useEffect(() => {
+    refCount++
+    if (refCount > 1) return () => { refCount-- }
+
     let reconnectTimer: ReturnType<typeof setTimeout>
+    let disposed = false
 
     function connect() {
+      if (disposed) return
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
-      wsRef.current = ws
+      globalWs = ws
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === 'metrics' && msg.host_id && msg.data) {
-            updateMetrics(msg.host_id, msg.data)
+            updateMetricsRef.current(msg.host_id, msg.data)
+          }
+          if (msg.type === 'alert' && msg.data) {
+            addAlertRef.current(msg.data)
+          }
+          if (msg.type === 'alert_resolved' && msg.data) {
+            resolveAlertRef.current(msg.data.id)
+          }
+          if (msg.type === 'alert_acked' && msg.data) {
+            silenceAlertRef.current(msg.data.id, msg.data.acked_by)
           }
         } catch {
-          // ignore parse errors
+          // ignore
         }
       }
 
       ws.onclose = () => {
-        reconnectTimer = setTimeout(connect, 3000)
+        globalWs = null
+        if (!disposed) {
+          reconnectTimer = setTimeout(connect, 3000)
+        }
       }
 
       ws.onerror = () => {
@@ -36,8 +70,14 @@ export function useWebSocket() {
     connect()
 
     return () => {
-      clearTimeout(reconnectTimer)
-      wsRef.current?.close()
+      refCount--
+      if (refCount <= 0) {
+        disposed = true
+        clearTimeout(reconnectTimer)
+        globalWs?.close()
+        globalWs = null
+        refCount = 0
+      }
     }
-  }, [updateMetrics])
+  }, [])
 }

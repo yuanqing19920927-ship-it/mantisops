@@ -89,6 +89,7 @@ export interface DashboardData {
   servers_online: number
   servers_total: number
   servers: Server[]
+  metrics?: Record<string, MetricsPayload>
 }
 
 export interface ProbeResult {
@@ -100,4 +101,64 @@ export interface ProbeResult {
   latency_ms: number
   checked_at: number
   error?: string
+}
+
+// Alert types
+export interface AlertRule {
+  id?: number
+  name: string
+  type: string
+  target_id: string
+  operator: string
+  threshold: number
+  unit: string
+  duration: number
+  level: string
+  enabled: boolean
+  created_at?: string
+}
+
+export interface AlertEvent {
+  id: number
+  rule_id: number
+  rule_name: string
+  target_id: string
+  target_label: string
+  level: string
+  status: string
+  silenced: boolean
+  value: number
+  message: string
+  fired_at: string
+  resolved_at?: string
+  resolve_type?: string
+  acked_at?: string
+  acked_by?: string
+}
+
+export interface AlertStats {
+  firing: number
+  firing_unsilenced: number
+  today_fired: number
+  today_resolved: number
+  today_silenced: number
+}
+
+export interface NotificationChannel {
+  id?: number
+  name: string
+  type: string
+  config: string
+  enabled: boolean
+  created_at?: string
+}
+
+export interface AlertNotificationDetail {
+  channel_name: string
+  channel_type: string
+  notify_type: string
+  status: string
+  retry_count: number
+  last_error: string
+  sent_at?: string
 }
