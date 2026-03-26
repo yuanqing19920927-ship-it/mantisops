@@ -536,19 +536,25 @@ func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Re
     └────┬────┘
          │ 保存后自动触发
     ┌────▼────┐
-    │ syncing │ 验证 AK + 发现/验证实例 + 注册
+    │ syncing │ 发现实例（入库 monitored=0，不注册到 servers，不开始采集）
     └────┬────┘
          │
     ┌────┼──────────────────────┐
     │    │                      │
     ▼    ▼                      ▼
  synced  partial              failed
- (全成功) (部分成功，如 ECS    (全失败)
-          成功但 RDS 失败)
+ (ECS+RDS (部分成功，如 ECS   (全失败)
+  全发现)  成功但 RDS 失败)
 
-synced 和 partial 状态的账号都会被 AliyunCollector 纳入采集循环（仅采集已成功入库的实例）。
+syncing 阶段只做发现和入库，不注册 ECS 到 servers 表、不启动采集。
+用户在发现结果页勾选实例并点击「确认接入」后：
+  - 调用 POST /cloud-instances/confirm 将勾选实例 monitored 设为 1
+  - ECS 实例此时才注册到 servers 表
+  - AliyunCollector 下次 loadInstances() 时拾取并开始采集
+
+synced 和 partial 状态的账号都会被 AliyunCollector 纳入采集循环（仅 monitored=1 的实例）。
 sync_error 存储 JSON 格式的分类型错误信息：{"ecs":"ok","rds":"权限不足: ..."}
-可手动触发「重新同步」刷新实例列表。
+可手动触发「重新同步」刷新实例列表（新发现的实例同样 monitored=0，需再次确认）。
 ```
 
 ### 4.4 后端实现
@@ -574,18 +580,24 @@ func (m *Manager) Sync(accountID int) error
 // ConfirmInstances 用户确认接入：将指定实例 monitored 设为 1，ECS 类型注册到 servers 表
 func (m *Manager) ConfirmInstances(instanceIDs []int) error
 
-// DeleteAccount 删除云账号。处理顺序：
+// DeleteAccount 删除云账号。处理顺序（事务内）：
 //   1. 查出该账号下所有 ECS 实例的 host_id
-//   2. 对每个 host_id，检查 servers 表中是否存在对应行
-//   3. 若存在，先删除 assets 和 probe_rules 中引用该 server_id 的行
-//   4. 再删除 servers 行
-//   5. 最后删除 cloud_instances（由 ON DELETE CASCADE 自动处理）和 cloud_account
-//   全部在一个事务中完成。如果该云主机上有资产或探测规则，API 返回确认提示：
-//   "该账号下的 N 台 ECS 服务器关联了 M 条资产和 K 条探测规则，删除后一并清除。确认？"
-//   前端收到提示后弹二次确认对话框，带 ?force=true 参数重新请求。
+//   2. 对每个 host_id，查 servers 表获取 server_id
+//   3. 清理关联数据（按外键依赖序）：
+//      a. alert_notifications（通过 event_id 关联）
+//      b. alert_events（WHERE target_id = host_id）
+//      c. alert_rules（WHERE target_id = host_id，字符串匹配，无外键保护）
+//      d. probe_rules（WHERE server_id = server_id）
+//      e. assets（WHERE server_id = server_id）
+//   4. 删除 servers 行
+//   5. 删除 cloud_instances（ON DELETE CASCADE）和 cloud_account
+//
+//   force=false 时：不执行删除，仅返回影响摘要：
+//   {"servers": 3, "assets": 5, "probe_rules": 2, "alert_rules": 1, "alert_events": 4}
+//   前端据此弹二次确认对话框，用户确认后带 ?force=true 重新请求。
 func (m *Manager) DeleteAccount(accountID int, force bool) error
 
-// DeleteInstance 删除单个实例，逻辑同上（事务内级联清理 assets/probe_rules/servers）
+// DeleteInstance 删除单个实例，逻辑同上
 func (m *Manager) DeleteInstance(instanceID int, force bool) error
 
 // DiscoverECS 发现所有 ECS 实例
@@ -776,7 +788,19 @@ interface RDSInfo {
     engine: string         // 从 cloud_instances.engine 获取
     spec: string           // 从 cloud_instances.spec 获取
     endpoint: string       // 从 cloud_instances.endpoint 获取
+    account_id: number     // 所属云账号 ID
+    account_name: string   // 所属云账号名称（如"碧橙-生产环境"）
     metrics: Record<string, number>
+}
+```
+
+BillingItem 也同步增加账号归属：
+
+```typescript
+interface BillingItem {
+    // ... 现有字段 ...
+    account_id: number     // 所属云账号 ID
+    account_name: string   // 所属云账号名称
 }
 ```
 
@@ -953,8 +977,11 @@ case 'cloud_sync_progress':
 | `web/src/components/AddCloudAccountDialog.tsx` | 添加云账号对话框 |
 | `web/src/components/InstanceSelector.tsx` | 实例勾选列表 |
 | `web/src/components/ManualInstanceForm.tsx` | 手动添加实例 |
-| `web/src/api/onboarding.ts` | 接入管理相关 API 调用 |
-| `web/src/types/onboarding.ts` | 接入管理相关类型定义 |
+
+**前端文件组织决策：接入管理的 API 调用和类型定义独立成模块**（`api/onboarding.ts` + `types/onboarding.ts`），不堆入现有的 `api/client.ts` 和 `types/index.ts`。正文 8.3 中的代码示例仅为说明调用签名，实际文件位置以本清单为准。
+
+| `web/src/api/onboarding.ts` | 接入管理相关 API 调用（managed-servers、cloud-accounts、cloud-instances、credentials） |
+| `web/src/types/onboarding.ts` | 接入管理相关类型定义（ManagedServer、CloudAccount、CloudInstance、Credential 等） |
 
 ### 修改的文件
 
@@ -964,16 +991,15 @@ case 'cloud_sync_progress':
 | `server/internal/config/config.go` | 新增 EncryptionKey、AgentBinConfig |
 | `server/internal/grpc/handler.go` | NewHandler 新增 onRegister 回调参数 |
 | `server/internal/collector/aliyun.go` | 重构数据源，支持从数据库读取 |
-| `server/internal/api/database_handler.go` | 重构，从 CloudStore 读取 RDS 列表 |
-| `server/internal/api/billing_handler.go` | 重构，从 CloudStore 读取账号 |
+| `server/internal/api/database_handler.go` | 重构，从 CloudStore 读取 RDS 列表；RDSInfo 响应增加 account_id/account_name |
+| `server/internal/api/billing_handler.go` | 重构，从 CloudStore 读取账号；BillingItem 响应增加 account_id/account_name |
 | `server/internal/api/router.go` | 新增路由组，重构参数为 RouterDeps 结构体 |
 | `server/cmd/server/main.go` | 初始化新组件、旧配置迁移 |
 | `web/src/pages/Servers/index.tsx` | 添加「+ 添加服务器」按钮 |
-| `web/src/pages/Databases/index.tsx` | 添加「+ 添加云账号」按钮，去硬编码 |
-| `web/src/pages/DatabaseDetail/index.tsx` | 元信息从 API 获取 |
+| `web/src/pages/Databases/index.tsx` | 添加「+ 添加云账号」按钮，去硬编码，按账号分组展示 |
+| `web/src/pages/DatabaseDetail/index.tsx` | 元信息从 API 获取，显示所属账号 |
+| `web/src/pages/Billing/index.tsx` | 表格新增账号列 |
 | `web/src/hooks/useWebSocket.ts` | 处理新消息类型 |
-| `web/src/api/client.ts` | 新增 API 函数 |
-| `web/src/types/index.ts` | 新增类型定义 |
 
 ---
 
