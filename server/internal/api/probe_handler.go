@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -9,6 +11,29 @@ import (
 	"opsboard/server/internal/probe"
 	"opsboard/server/internal/store"
 )
+
+func deriveHostPort(rule *model.ProbeRule) {
+	if rule.Protocol != "http" && rule.Protocol != "https" {
+		return
+	}
+	if rule.URL == "" {
+		return
+	}
+	u, err := url.Parse(rule.URL)
+	if err != nil {
+		return
+	}
+	rule.Host = u.Hostname()
+	port := u.Port()
+	if port == "" {
+		if rule.Protocol == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	fmt.Sscanf(port, "%d", &rule.Port)
+}
 
 type ProbeHandler struct {
 	store  *store.ProbeStore
@@ -44,6 +69,7 @@ func (h *ProbeHandler) Create(c *gin.Context) {
 		rule.TimeoutSec = 5
 	}
 	rule.Enabled = true
+	deriveHostPort(&rule)
 	id, err := h.store.Create(&rule)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -62,6 +88,7 @@ func (h *ProbeHandler) Update(c *gin.Context) {
 		return
 	}
 	rule.ID = id
+	deriveHostPort(&rule)
 	if err := h.store.Update(&rule); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
