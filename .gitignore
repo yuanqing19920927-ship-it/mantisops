@@ -1,0 +1,11 @@
+data/
+*.db
+node_modules/
+dist/
+opsboard-agent
+opsboard-server
+/opt/opsboard/certs/
+*.pem
+*.key
+*.crt
+.DS_Store
