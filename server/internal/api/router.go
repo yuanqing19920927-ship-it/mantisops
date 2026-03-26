@@ -6,7 +6,7 @@ import (
 	"opsboard/server/internal/ws"
 )
 
-func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub) *gin.Engine {
+func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler) *gin.Engine {
 	r := gin.Default()
 
 	// CORS for dev
@@ -29,6 +29,19 @@ func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub) *gin.Engine {
 		srv := &ServerHandler{store: serverStore}
 		v1.GET("/servers", srv.List)
 		v1.GET("/servers/:id", srv.Get)
+
+		// Probes
+		v1.GET("/probes", probeHandler.List)
+		v1.POST("/probes", probeHandler.Create)
+		v1.PUT("/probes/:id", probeHandler.Update)
+		v1.DELETE("/probes/:id", probeHandler.Delete)
+		v1.GET("/probes/status", probeHandler.Status)
+
+		// Assets
+		v1.GET("/assets", assetHandler.List)
+		v1.POST("/assets", assetHandler.Create)
+		v1.PUT("/assets/:id", assetHandler.Update)
+		v1.DELETE("/assets/:id", assetHandler.Delete)
 	}
 
 	r.GET("/ws", func(c *gin.Context) {

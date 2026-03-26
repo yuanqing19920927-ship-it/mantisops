@@ -9,6 +9,7 @@ import (
 	"opsboard/server/internal/collector"
 	"opsboard/server/internal/config"
 	grpcpkg "opsboard/server/internal/grpc"
+	"opsboard/server/internal/probe"
 	"opsboard/server/internal/store"
 	"opsboard/server/internal/ws"
 )
@@ -40,6 +41,17 @@ func main() {
 	// Metrics Collector
 	mc := collector.NewMetricsCollector(vmStore, hub, serverStore)
 
+	// Probe
+	probeStore := store.NewProbeStore(db)
+	prober := probe.NewProber(probeStore, vmStore, hub)
+	prober.Start(cfg.Probe.Interval)
+	defer prober.Stop()
+	probeHandler := api.NewProbeHandler(probeStore, prober)
+
+	// Asset
+	assetStore := store.NewAssetStore(db)
+	assetHandler := api.NewAssetHandler(assetStore)
+
 	// gRPC
 	handler := grpcpkg.NewHandler(serverStore, mc.Handle)
 	psk := grpcpkg.NewPSKInterceptor(cfg.Server.PSKToken)
@@ -50,7 +62,7 @@ func main() {
 	}()
 
 	// HTTP API
-	router := api.SetupRouter(serverStore, hub)
+	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler)
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
 		log.Fatalf("HTTP error: %v", err)
