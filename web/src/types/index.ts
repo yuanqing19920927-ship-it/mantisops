@@ -1,3 +1,10 @@
+export interface ServerGroup {
+  id: number
+  name: string
+  sort_order: number
+  server_count?: number
+}
+
 export interface Server {
   id: number
   host_id: string
@@ -18,6 +25,7 @@ export interface Server {
   status: 'online' | 'offline'
   display_name: string
   sort_order: number
+  group_id?: number | null
 }
 
 export interface CpuMetrics {
@@ -90,6 +98,7 @@ export interface DashboardData {
   servers_total: number
   servers: Server[]
   metrics?: Record<string, MetricsPayload>
+  groups?: ServerGroup[]
 }
 
 export interface ProbeResult {

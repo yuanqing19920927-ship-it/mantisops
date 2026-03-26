@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { DashboardData, Server, ProbeResult } from '../types'
+import type { DashboardData, Server, ServerGroup, ProbeResult } from '../types'
 
 const api = axios.create({ baseURL: '/api/v1' })
 
@@ -148,6 +148,40 @@ export async function getDatabases(): Promise<RDSInfo[]> {
 export async function getDatabase(id: string): Promise<RDSInfo> {
   const { data } = await api.get(`/databases/${id}`)
   return data
+}
+
+// Groups
+export async function getGroups(): Promise<ServerGroup[]> {
+  const { data } = await api.get('/groups')
+  return data || []
+}
+
+export async function createGroup(name: string) {
+  const { data } = await api.post('/groups', { name })
+  return data
+}
+
+export async function updateGroup(id: number, body: { name?: string; sort_order?: number }) {
+  await api.put(`/groups/${id}`, body)
+}
+
+export async function deleteGroup(id: number) {
+  await api.delete(`/groups/${id}`)
+}
+
+export async function setServerGroup(hostId: string, groupId: number | null) {
+  await api.put(`/servers/${hostId}/group`, { group_id: groupId })
+}
+
+// Alerts
+export async function getAlertStats() {
+  const { data } = await api.get('/alerts/stats')
+  return data
+}
+
+export async function getAlertEvents(params: { status?: string; silenced?: boolean; limit?: number }) {
+  const { data } = await api.get('/alerts/events', { params })
+  return data || []
 }
 
 export default api
