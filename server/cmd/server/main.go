@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"opsboard/server/internal/alert"
 	"opsboard/server/internal/api"
 	"opsboard/server/internal/collector"
 	"opsboard/server/internal/config"
@@ -48,9 +49,30 @@ func main() {
 	defer prober.Stop()
 	probeHandler := api.NewProbeHandler(probeStore, prober)
 
+	// Alert system
+	alertStore := store.NewAlertStore(db)
+	alerter := alert.NewAlerter(alertStore, hub, mc, prober, serverStore)
+	alerter.Start()
+	defer alerter.Stop()
+	alertHandler := api.NewAlertHandler(alertStore, alerter)
+
 	// Asset
 	assetStore := store.NewAssetStore(db)
 	assetHandler := api.NewAssetHandler(assetStore)
+
+	// Aliyun Cloud Collector
+	var metricsProvider api.MetricsProvider
+	if cfg.Aliyun.Enabled {
+		ac, err := collector.NewAliyunCollector(cfg.Aliyun, vmStore, serverStore, hub)
+		if err != nil {
+			log.Printf("aliyun collector init failed: %v", err)
+		} else {
+			ac.Start()
+			defer ac.Stop()
+			metricsProvider = ac
+			log.Printf("aliyun collector started, %d instances", len(cfg.Aliyun.Instances))
+		}
+	}
 
 	// gRPC
 	handler := grpcpkg.NewHandler(serverStore, mc.Handle)
@@ -61,8 +83,17 @@ func main() {
 		}
 	}()
 
+	// Auth
+	authHandler := api.NewAuthHandler(cfg.Auth.Username, cfg.Auth.Password, cfg.Auth.JWTSecret)
+
+	// Database (RDS)
+	dbHandler := api.NewDatabaseHandler(cfg.Aliyun.RDS, vmStore)
+
+	// Billing
+	billingHandler := api.NewBillingHandler(cfg.Aliyun)
+
 	// HTTP API
-	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, cfg.Server.StaticDir)
+	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, authHandler, dbHandler, billingHandler, alertHandler, metricsProvider, cfg.Server.StaticDir)
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
 		log.Fatalf("HTTP error: %v", err)

@@ -6,7 +6,7 @@ import (
 	"opsboard/server/internal/ws"
 )
 
-func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler, staticDir string) *gin.Engine {
+func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler, authHandler *AuthHandler, dbHandler *DatabaseHandler, billingHandler *BillingHandler, alertHandler *AlertHandler, metricsProvider MetricsProvider, staticDir string) *gin.Engine {
 	r := gin.Default()
 
 	// CORS for dev
@@ -21,14 +21,22 @@ func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *Prob
 		c.Next()
 	})
 
+	// Public auth endpoint
+	r.POST("/api/v1/auth/login", authHandler.Login)
+
+	// Protected API group
 	v1 := r.Group("/api/v1")
+	v1.Use(authHandler.JWTMiddleware())
 	{
-		dash := &DashboardHandler{serverStore: serverStore}
+		v1.GET("/auth/me", authHandler.Me)
+
+		dash := &DashboardHandler{serverStore: serverStore, metricsProvider: metricsProvider}
 		v1.GET("/dashboard", dash.Overview)
 
 		srv := &ServerHandler{store: serverStore}
 		v1.GET("/servers", srv.List)
 		v1.GET("/servers/:id", srv.Get)
+		v1.PUT("/servers/:id/name", srv.UpdateDisplayName)
 
 		// Probes
 		v1.GET("/probes", probeHandler.List)
@@ -42,6 +50,28 @@ func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *Prob
 		v1.POST("/assets", assetHandler.Create)
 		v1.PUT("/assets/:id", assetHandler.Update)
 		v1.DELETE("/assets/:id", assetHandler.Delete)
+
+		// Databases (RDS)
+		v1.GET("/databases", dbHandler.List)
+		v1.GET("/databases/:id", dbHandler.Get)
+
+		// Billing
+		v1.GET("/billing", billingHandler.List)
+
+		// Alerts
+		v1.GET("/alerts/rules", alertHandler.ListRules)
+		v1.POST("/alerts/rules", alertHandler.CreateRule)
+		v1.PUT("/alerts/rules/:id", alertHandler.UpdateRule)
+		v1.DELETE("/alerts/rules/:id", alertHandler.DeleteRule)
+		v1.GET("/alerts/events", alertHandler.ListEvents)
+		v1.GET("/alerts/stats", alertHandler.GetStats)
+		v1.PUT("/alerts/events/:id/ack", alertHandler.AckEvent)
+		v1.GET("/alerts/events/:id/notifications", alertHandler.GetEventNotifications)
+		v1.GET("/alerts/channels", alertHandler.ListChannels)
+		v1.POST("/alerts/channels", alertHandler.CreateChannel)
+		v1.PUT("/alerts/channels/:id", alertHandler.UpdateChannel)
+		v1.DELETE("/alerts/channels/:id", alertHandler.DeleteChannel)
+		v1.POST("/alerts/channels/:id/test", alertHandler.TestChannel)
 	}
 
 	r.GET("/ws", func(c *gin.Context) {
