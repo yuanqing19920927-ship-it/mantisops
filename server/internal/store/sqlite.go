@@ -55,6 +55,56 @@ func migrate(db *sql.DB) error {
 			enabled BOOLEAN DEFAULT 1,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS alert_rules (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			name        TEXT NOT NULL,
+			type        TEXT NOT NULL,
+			target_id   TEXT DEFAULT '',
+			operator    TEXT DEFAULT '>',
+			threshold   REAL DEFAULT 0,
+			unit        TEXT DEFAULT '%',
+			duration    INTEGER DEFAULT 3,
+			level       TEXT DEFAULT 'warning',
+			enabled     BOOLEAN DEFAULT 1,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS notification_channels (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			name        TEXT NOT NULL,
+			type        TEXT NOT NULL,
+			config      TEXT NOT NULL,
+			enabled     BOOLEAN DEFAULT 1,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS alert_events (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			rule_id       INTEGER NOT NULL,
+			rule_name     TEXT NOT NULL,
+			target_id     TEXT NOT NULL,
+			target_label  TEXT NOT NULL DEFAULT '',
+			level         TEXT NOT NULL,
+			status        TEXT DEFAULT 'firing',
+			silenced      BOOLEAN DEFAULT 0,
+			value         REAL,
+			message       TEXT,
+			fired_at      DATETIME NOT NULL,
+			resolved_at   DATETIME,
+			resolve_type  TEXT DEFAULT '',
+			acked_at      DATETIME,
+			acked_by      TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS alert_notifications (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			event_id      INTEGER NOT NULL,
+			channel_id    INTEGER NOT NULL,
+			notify_type   TEXT NOT NULL DEFAULT 'firing',
+			status        TEXT DEFAULT 'pending',
+			retry_count   INTEGER DEFAULT 0,
+			last_error    TEXT DEFAULT '',
+			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			claimed_at    DATETIME,
+			sent_at       DATETIME
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
