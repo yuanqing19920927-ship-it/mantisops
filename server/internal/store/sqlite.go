@@ -105,6 +105,12 @@ func migrate(db *sql.DB) error {
 			claimed_at    DATETIME,
 			sent_at       DATETIME
 		)`,
+		// Alert indexes
+		`CREATE INDEX IF NOT EXISTS idx_alert_events_status ON alert_events(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_alert_events_rule_status ON alert_events(rule_id, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_alert_events_fired_at ON alert_events(fired_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_alert_notifications_status ON alert_notifications(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_alert_notifications_event_id ON alert_notifications(event_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

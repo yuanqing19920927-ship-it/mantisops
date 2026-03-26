@@ -14,6 +14,8 @@ import (
 	"opsboard/server/internal/model"
 )
 
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
 type DingtalkConfig struct {
 	URL    string `json:"url"`
 	Secret string `json:"secret"`
@@ -31,14 +33,22 @@ func SendDingtalk(cfg DingtalkConfig, title, text string) error {
 		sign := dingtalkSign(ts, cfg.Secret)
 		requestURL += fmt.Sprintf("&timestamp=%d&sign=%s", ts, url.QueryEscape(sign))
 	}
-	body, _ := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]interface{}{
 		"msgtype": "markdown",
 		"markdown": map[string]string{
 			"title": title,
 			"text":  text,
 		},
 	})
-	resp, err := http.Post(requestURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("marshal dingtalk body: %w", err)
+	}
+	req, err := http.NewRequest("POST", requestURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -64,7 +74,10 @@ func dingtalkSign(timestamp int64, secret string) string {
 }
 
 func SendWebhook(cfg WebhookConfig, payload interface{}) error {
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal webhook body: %w", err)
+	}
 	req, err := http.NewRequest("POST", cfg.URL, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -73,8 +86,7 @@ func SendWebhook(cfg WebhookConfig, payload interface{}) error {
 	for k, v := range cfg.Headers {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}

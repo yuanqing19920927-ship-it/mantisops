@@ -227,11 +227,11 @@ func (s *AlertStore) GetStats() (*model.AlertStats, error) {
 	var st model.AlertStats
 	err := s.db.QueryRow(`
 		SELECT
-			SUM(CASE WHEN status='firing' THEN 1 ELSE 0 END),
-			SUM(CASE WHEN status='firing' AND silenced=0 THEN 1 ELSE 0 END),
-			SUM(CASE WHEN status='firing' AND fired_at >= date('now','start of day') THEN 1 ELSE 0 END),
-			SUM(CASE WHEN status='resolved' AND resolved_at >= date('now','start of day') THEN 1 ELSE 0 END),
-			SUM(CASE WHEN silenced=1 AND acked_at >= date('now','start of day') THEN 1 ELSE 0 END)
+			COALESCE(SUM(CASE WHEN status='firing' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status='firing' AND silenced=0 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status='firing' AND fired_at >= date('now','start of day') THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status='resolved' AND resolved_at >= date('now','start of day') THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN silenced=1 AND acked_at >= date('now','start of day') THEN 1 ELSE 0 END), 0)
 		FROM alert_events
 	`).Scan(&st.Firing, &st.FiringUnsilenced, &st.TodayFired, &st.TodayResolved, &st.TodaySilenced)
 	if err != nil {
@@ -438,7 +438,15 @@ func (s *AlertStore) ListPendingNotifications() ([]PendingNotification, error) {
 }
 
 func (s *AlertStore) ResetStaleNotifications() error {
-	// Reset all 'sending' notifications to 'pending' (used on startup and for stale >60s)
+	// Reset 'sending' notifications that have been claimed for over 60 seconds (likely stuck)
+	_, err := s.db.Exec(
+		`UPDATE alert_notifications SET status='pending', claimed_at=NULL
+		 WHERE status='sending' AND claimed_at < datetime('now', '-60 seconds')`)
+	return err
+}
+
+// ResetAllSendingNotifications resets ALL sending notifications to pending (used on startup only).
+func (s *AlertStore) ResetAllSendingNotifications() error {
 	_, err := s.db.Exec(
 		`UPDATE alert_notifications SET status='pending', claimed_at=NULL WHERE status='sending'`)
 	return err

@@ -51,7 +51,7 @@ func NewAlerter(s *store.AlertStore, hub *ws.Hub, metrics MetricsProvider, probe
 // Start initializes and starts the alerter loops.
 func (a *Alerter) Start() {
 	a.recoverState()
-	if err := a.store.ResetStaleNotifications(); err != nil {
+	if err := a.store.ResetAllSendingNotifications(); err != nil {
 		log.Printf("[alerter] reset stale notifications: %v", err)
 	}
 	go a.loop()
@@ -180,8 +180,8 @@ func (a *Alerter) fireAlert(rule model.AlertRule, result EvalResult, st *ruleSta
 	event.Status = "firing"
 
 	a.hub.BroadcastJSON(map[string]interface{}{
-		"type":  "alert",
-		"event": event,
+		"type": "alert",
+		"data": event,
 	})
 	log.Printf("[alerter] FIRE rule=%d target=%s value=%.2f", rule.ID, result.TargetID, result.Value)
 }
@@ -195,8 +195,8 @@ func (a *Alerter) resolveAlert(st *ruleState, resolveType string) {
 	}
 
 	a.hub.BroadcastJSON(map[string]interface{}{
-		"type":     "alert_resolved",
-		"event_id": st.eventID,
+		"type": "alert_resolved",
+		"data": map[string]interface{}{"id": st.eventID},
 	})
 	log.Printf("[alerter] RESOLVE event=%d type=%s", st.eventID, resolveType)
 
@@ -274,8 +274,8 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 			continue
 		}
 		a.hub.BroadcastJSON(map[string]interface{}{
-			"type":     "alert_resolved",
-			"event_id": g.eventID,
+			"type": "alert_resolved",
+			"data": map[string]interface{}{"id": g.eventID},
 		})
 		log.Printf("[alerter] RESOLVE (target_gone) event=%d key=%s", g.eventID, g.key)
 
@@ -397,9 +397,8 @@ func (a *Alerter) AckEvent(eventID int, username string) error {
 	a.mu.Unlock()
 
 	a.hub.BroadcastJSON(map[string]interface{}{
-		"type":     "alert_acked",
-		"event_id": eventID,
-		"acked_by": username,
+		"type": "alert_acked",
+		"data": map[string]interface{}{"id": eventID, "acked_by": username},
 	})
 	return nil
 }
@@ -416,8 +415,8 @@ func (a *Alerter) OnRuleChanged(ruleID int, resolveType string) {
 		if strings.HasPrefix(key, prefix) {
 			if st.firing {
 				a.hub.BroadcastJSON(map[string]interface{}{
-					"type":     "alert_resolved",
-					"event_id": st.eventID,
+					"type": "alert_resolved",
+					"data": map[string]interface{}{"id": st.eventID},
 				})
 			}
 			delete(a.states, key)

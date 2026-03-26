@@ -35,15 +35,21 @@ export const useAlertStore = create<AlertState>((set) => ({
     })),
 
   resolveEvent: (eventId) =>
-    set((state) => ({
-      firingEvents: state.firingEvents.filter((e) => e.id !== eventId),
-      firingCount: Math.max(0, state.firingCount - 1),
-    })),
+    set((state) => {
+      if (!state.firingEvents.some((e) => e.id === eventId)) return state
+      return {
+        firingEvents: state.firingEvents.filter((e) => e.id !== eventId),
+        firingCount: Math.max(0, state.firingCount - 1),
+      }
+    }),
 
   silenceEvent: (eventId, ackedBy) =>
-    set((state) => ({
-      firingEvents: state.firingEvents.map((e) =>
-        e.id === eventId ? { ...e, silenced: true, acked_by: ackedBy } : e
-      ),
-    })),
+    set((state) => {
+      if (!state.firingEvents.some((e) => e.id === eventId)) return state
+      return {
+        firingEvents: state.firingEvents.map((e) =>
+          e.id === eventId ? { ...e, silenced: true, acked_by: ackedBy } : e
+        ),
+      }
+    }),
 }))
