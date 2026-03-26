@@ -6,7 +6,7 @@ import (
 	"opsboard/server/internal/ws"
 )
 
-func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler, authHandler *AuthHandler, dbHandler *DatabaseHandler, billingHandler *BillingHandler, alertHandler *AlertHandler, metricsProvider MetricsProvider, staticDir string) *gin.Engine {
+func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *ProbeHandler, assetHandler *AssetHandler, authHandler *AuthHandler, dbHandler *DatabaseHandler, billingHandler *BillingHandler, alertHandler *AlertHandler, groupHandler *GroupHandler, groupStore *store.GroupStore, metricsProvider MetricsProvider, staticDir string) *gin.Engine {
 	r := gin.Default()
 
 	// CORS for dev
@@ -30,13 +30,20 @@ func SetupRouter(serverStore *store.ServerStore, hub *ws.Hub, probeHandler *Prob
 	{
 		v1.GET("/auth/me", authHandler.Me)
 
-		dash := &DashboardHandler{serverStore: serverStore, metricsProvider: metricsProvider}
+		dash := &DashboardHandler{serverStore: serverStore, metricsProvider: metricsProvider, groupStore: groupStore}
 		v1.GET("/dashboard", dash.Overview)
 
 		srv := &ServerHandler{store: serverStore}
 		v1.GET("/servers", srv.List)
 		v1.GET("/servers/:id", srv.Get)
 		v1.PUT("/servers/:id/name", srv.UpdateDisplayName)
+		v1.PUT("/servers/:id/group", groupHandler.SetServerGroup)
+
+		// Groups
+		v1.GET("/groups", groupHandler.List)
+		v1.POST("/groups", groupHandler.Create)
+		v1.PUT("/groups/:id", groupHandler.Update)
+		v1.DELETE("/groups/:id", groupHandler.Delete)
 
 		// Probes
 		v1.GET("/probes", probeHandler.List)

@@ -50,7 +50,7 @@ func (s *ServerStore) List() ([]model.Server, error) {
 		COALESCE(cpu_cores,0), COALESCE(cpu_model,''), COALESCE(memory_total,0),
 		COALESCE(disk_total,0), COALESCE(gpu_model,''), COALESCE(gpu_memory,0),
 		COALESCE(boot_time,0), COALESCE(last_seen,0), COALESCE(status,'online'),
-		COALESCE(display_name,''), COALESCE(sort_order,0)
+		COALESCE(display_name,''), COALESCE(sort_order,0), group_id
 		FROM servers ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
@@ -59,12 +59,17 @@ func (s *ServerStore) List() ([]model.Server, error) {
 	var servers []model.Server
 	for rows.Next() {
 		var srv model.Server
+		var groupID sql.NullInt64
 		if err := rows.Scan(&srv.ID, &srv.HostID, &srv.Hostname, &srv.IPAddresses,
 			&srv.OS, &srv.Kernel, &srv.Arch, &srv.AgentVersion,
 			&srv.CPUCores, &srv.CPUModel, &srv.MemoryTotal, &srv.DiskTotal,
 			&srv.GPUModel, &srv.GPUMemory, &srv.BootTime, &srv.LastSeen,
-			&srv.Status, &srv.DisplayName, &srv.SortOrder); err != nil {
+			&srv.Status, &srv.DisplayName, &srv.SortOrder, &groupID); err != nil {
 			return nil, err
+		}
+		if groupID.Valid {
+			gid := int(groupID.Int64)
+			srv.GroupID = &gid
 		}
 		servers = append(servers, srv)
 	}
@@ -73,27 +78,43 @@ func (s *ServerStore) List() ([]model.Server, error) {
 
 func (s *ServerStore) GetByHostID(hostID string) (*model.Server, error) {
 	var srv model.Server
-	err := s.db.QueryRow(`SELECT id, host_id, hostname, COALESCE(ip_addresses,''),
+	row := s.db.QueryRow(`SELECT id, host_id, hostname, COALESCE(ip_addresses,''),
 		COALESCE(os,''), COALESCE(kernel,''), COALESCE(arch,''), COALESCE(agent_version,''),
 		COALESCE(cpu_cores,0), COALESCE(cpu_model,''), COALESCE(memory_total,0),
 		COALESCE(disk_total,0), COALESCE(gpu_model,''), COALESCE(gpu_memory,0),
 		COALESCE(boot_time,0), COALESCE(last_seen,0), COALESCE(status,'online'),
-		COALESCE(display_name,''), COALESCE(sort_order,0)
-		FROM servers WHERE host_id=?`, hostID).Scan(
+		COALESCE(display_name,''), COALESCE(sort_order,0), group_id
+		FROM servers WHERE host_id=?`, hostID)
+	var groupID sql.NullInt64
+	err := row.Scan(
 		&srv.ID, &srv.HostID, &srv.Hostname, &srv.IPAddresses,
 		&srv.OS, &srv.Kernel, &srv.Arch, &srv.AgentVersion,
 		&srv.CPUCores, &srv.CPUModel, &srv.MemoryTotal, &srv.DiskTotal,
 		&srv.GPUModel, &srv.GPUMemory, &srv.BootTime, &srv.LastSeen,
-		&srv.Status, &srv.DisplayName, &srv.SortOrder)
+		&srv.Status, &srv.DisplayName, &srv.SortOrder, &groupID)
 	if err != nil {
 		return nil, err
 	}
+	if groupID.Valid {
+		gid := int(groupID.Int64)
+		srv.GroupID = &gid
+	}
 	return &srv, nil
+}
+
+func (s *ServerStore) UpdateDisplayName(hostID, displayName string) error {
+	_, err := s.db.Exec("UPDATE servers SET display_name=?, updated_at=CURRENT_TIMESTAMP WHERE host_id=?", displayName, hostID)
+	return err
 }
 
 func (s *ServerStore) MarkOffline(timeoutSec int64) error {
 	threshold := time.Now().Unix() - timeoutSec
 	_, err := s.db.Exec("UPDATE servers SET status='offline' WHERE last_seen < ? AND status='online'", threshold)
+	return err
+}
+
+func (s *ServerStore) SetGroupID(hostID string, groupID *int) error {
+	_, err := s.db.Exec("UPDATE servers SET group_id=? WHERE host_id=?", groupID, hostID)
 	return err
 }
 

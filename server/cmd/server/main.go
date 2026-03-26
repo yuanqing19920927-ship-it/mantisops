@@ -32,6 +32,7 @@ func main() {
 	}
 	defer db.Close()
 	serverStore := store.NewServerStore(db)
+	groupStore := store.NewGroupStore(db)
 
 	// VictoriaMetrics
 	vmStore := store.NewVictoriaStore(cfg.Victoria.URL)
@@ -92,8 +93,11 @@ func main() {
 	// Billing
 	billingHandler := api.NewBillingHandler(cfg.Aliyun, prober)
 
+	// Groups
+	groupHandler := api.NewGroupHandler(groupStore, serverStore)
+
 	// HTTP API
-	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, authHandler, dbHandler, billingHandler, alertHandler, metricsProvider, cfg.Server.StaticDir)
+	router := api.SetupRouter(serverStore, hub, probeHandler, assetHandler, authHandler, dbHandler, billingHandler, alertHandler, groupHandler, groupStore, metricsProvider, cfg.Server.StaticDir)
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
 		log.Fatalf("HTTP error: %v", err)

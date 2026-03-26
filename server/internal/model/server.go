@@ -22,6 +22,7 @@ type Server struct {
 	Status       string    `json:"status"`
 	DisplayName  string    `json:"display_name"`
 	SortOrder    int       `json:"sort_order"`
+	GroupID      *int      `json:"group_id"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
