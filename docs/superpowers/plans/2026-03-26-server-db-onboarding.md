@@ -489,12 +489,10 @@ type CredentialStore struct {
     masterKey []byte
 }
 
-func NewCredentialStore(db *sql.DB, keyHex string) *CredentialStore {
-    key, err := crypto.LoadKey(keyHex)
-    if err != nil {
-        panic(fmt.Sprintf("encryption key error: %v", err))
-    }
-    return &CredentialStore{db: db, masterKey: key}
+// NewCredentialStore 接收已解析的 []byte 密钥（由 main.go 通过 crypto.EnsureKey 提前获取）。
+// 不再自行解析 keyHex 或 panic，密钥生命周期完全由调用方管理。
+func NewCredentialStore(db *sql.DB, masterKey []byte) *CredentialStore {
+    return &CredentialStore{db: db, masterKey: masterKey}
 }
 
 func (s *CredentialStore) Create(name, credType string, data map[string]string) (int, error) {
@@ -780,7 +778,7 @@ git commit -m "refactor(api): replace SetupRouter params with RouterDeps struct"
 - `DeleteAccountRow(tx *sql.Tx, id int) error` — 在调用方提供的事务内删 cloud_accounts 行（ON DELETE CASCADE 处理 cloud_instances）
 - `UpsertInstance(accountID int, inst *CloudInstance) error` — INSERT ... ON CONFLICT(cloud_account_id, instance_id) DO UPDATE SET instance_name=, region_id=, spec=, engine=, endpoint=, extra=, updated_at=; 注意 **不更新 id、monitored、host_id**，确保实例主键稳定、用户的启用状态不被重新同步覆盖
 - `ListInstances(accountID int) ([]CloudInstance, error)`
-- `ConfirmInstances(ids []int, serverStore *ServerStore) error` — 事务内：设 monitored=1 + ECS 注册 servers
+- `ConfirmInstances(ids []int) error` — 在单个 `db.BeginTx` 事务内：(1) UPDATE cloud_instances SET monitored=1 WHERE id IN (...)；(2) 对 instance_type='ecs' 的实例，直接在事务内执行 `INSERT OR REPLACE INTO servers (host_id, hostname, ...) VALUES (?, ?, ...)`（自包含 SQL，不依赖 ServerStore.Upsert，因为后者不接受 tx）；(3) tx.Commit。保证"启用监控 + 注册服务器"原子完成。
 - `LoadMonitoredInstances() (ecs []CloudInstance, rds []CloudInstance, error)` — 联合查询 synced/partial + monitored=1
 - `GetDeleteImpact(hostIDs []string) (*DeleteImpact, error)` — 查 assets/probe_rules/alert_rules/alert_events 数量
 - `CascadeDeleteServers(tx *sql.Tx, hostIDs []string) error` — **在调用方提供的事务内**按顺序清理 alert_notifications → alert_events → alert_rules → probe_rules → assets → servers。不自己开事务。
@@ -925,13 +923,47 @@ git commit -m "refactor(collector): dual data source with config migration"
 
 - [ ] **Step 4: 更新 main.go 中 handler 初始化**
 
-- [ ] **Step 5: 编译验证**
+- [ ] **Step 5: 同步更新前端 client.ts 中的 RDSInfo 和 BillingItem 类型**
 
-- [ ] **Step 6: Commit**
+现有 `web/src/api/client.ts` 中的类型定义缺少账号字段，而 Databases 和 Billing 页面直接使用这些类型。必须在此 task 中一起更新：
+
+```typescript
+// client.ts — 修改 RDSInfo
+export interface RDSInfo {
+  host_id: string
+  name: string
+  engine: string         // 新增
+  spec: string           // 新增
+  endpoint: string       // 新增
+  account_id: number     // 新增
+  account_name: string   // 新增
+  metrics: Record<string, number>
+}
+
+// client.ts — 修改 BillingItem
+export interface BillingItem {
+  type: string
+  id: string
+  name: string
+  engine: string
+  spec: string
+  charge_type: string
+  expire_date: string
+  days_left: number
+  status: string
+  account_id: number     // 新增
+  account_name: string   // 新增
+}
+```
+
+- [ ] **Step 6: 编译验证（后端 + 前端 tsc）**
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add server/internal/api/database_handler.go server/internal/api/billing_handler.go server/cmd/server/main.go
-git commit -m "refactor(api): database and billing handlers read from DB"
+git add server/internal/api/database_handler.go server/internal/api/billing_handler.go \
+        server/cmd/server/main.go web/src/api/client.ts
+git commit -m "refactor(api): database and billing handlers read from DB, update frontend types"
 ```
 
 ---
@@ -1044,7 +1076,7 @@ type ManagedServer struct {
 func (s *ManagedServerStore) Create(ms *ManagedServer) (int, error)
 func (s *ManagedServerStore) List() ([]ManagedServer, error)
 func (s *ManagedServerStore) Get(id int) (*ManagedServer, error)
-func (s *ManagedServerStore) Delete(id int) error
+func (s *ManagedServerStore) Delete(id int, credStore *CredentialStore) error // 删除记录后，检查 credential_id 引用计数，为 0 则一并删除凭据
 func (s *ManagedServerStore) CASUpdateState(id int, fromStates []string, toState string) (bool, error) // CAS
 func (s *ManagedServerStore) UpdateState(id int, state, errorMsg string) error
 func (s *ManagedServerStore) UpdateAgentInfo(id int, agentHostID, agentVersion string) error
@@ -1338,17 +1370,36 @@ git commit -m "feat(web): remove hardcoded RDS info, add account column"
 
 - [ ] **Step 1: 完整初始化链路**
 
-```
-1. SQLite (with foreign_keys)
-2. CredentialStore (encryption key)
-3. CloudStore
-4. ManagedServerStore
-5. CloudManager
-6. Deployer
-7. AliyunCollector (cloudStore + credStore + fallbackCfg + migration)
-8. All handlers
-9. gRPC handler (onRegister = deployer.NotifyRegistered)
-10. SetupRouter(deps)
+```go
+// 1. SQLite (with foreign_keys)
+db, err := store.InitSQLite(cfg.SQLite.Path)
+
+// 2. Encryption key — 必须在任何凭据操作之前完成
+//    EnsureKey: 环境变量 > 配置文件 > 自动生成并写回配置文件 > 写失败则 log.Fatal
+masterKey, err := crypto.EnsureKey(cfg.EncryptionKey, *cfgPath)
+if err != nil {
+    log.Fatalf("encryption key: %v", err)
+}
+
+// 3. CredentialStore — 接收已解析的 masterKey []byte
+credentialStore := store.NewCredentialStore(db, masterKey)
+
+// 4. CloudStore
+cloudStore := store.NewCloudStore(db)
+
+// 5. ManagedServerStore
+managedServerStore := store.NewManagedServerStore(db)
+
+// 6. CloudManager
+cloudManager := cloud.NewManager(db, cloudStore, credentialStore, hub)
+
+// 7. Deployer
+deployer := deployer.NewDeployer(managedServerStore, credentialStore, serverStore, hub, ...)
+
+// 8. AliyunCollector (cloudStore + credStore + fallbackCfg + migration)
+// 9. All handlers
+// 10. gRPC handler (onRegister = deployer.NotifyRegistered)
+// 11. SetupRouter(deps)
 ```
 
 - [ ] **Step 2: 编译完整 server**
