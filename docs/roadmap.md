@@ -47,50 +47,100 @@
 
 ---
 
-## V3 — 远程运维 + 权限管理（规划中）
+## V3 — 探测增强 + 分组 + 仪表盘 + 远程运维 + 权限管理（规划中）
 
-从"看得见"升级为"管得了"，增加远程操作能力和多用户协作。
+从"看得见"升级为"管得了"，扩展探测能力，增加远程操作和多用户协作。
 
-### 3.1 用户权限管理
+### 3.1 HTTP 探测 + SSL 证书监控
 
-**优先级：P1（核心）** — 多人使用的基础，当前仅单用户 admin。
+**优先级：P1** — 已有详细设计，独立模块，可立即开发。
+
+**设计文档：** `docs/superpowers/specs/2026-03-26-v3-enhancements-design.md` 功能 1
+
+| 功能 | 说明 |
+|------|------|
+| 多协议探测 | 将现有 TCP 探测扩展为 TCP / HTTP / HTTPS 三种协议 |
+| HTTP 状态码检查 | 检查响应状态码是否匹配期望值（默认 200） |
+| 响应体关键字匹配 | 检查响应 body 是否包含指定关键字 |
+| SSL 证书到期监控 | HTTPS 探测自动提取证书到期时间、颁发者，计算剩余天数 |
+| SSL 到期徽章 | 探测卡片右上角显示 SSL 剩余天数（绿/黄/红色阶） |
+| 资源到期页集成 | SSL 证书和 ECS/RDS 到期信息统一展示在 Billing 页面 |
+
+**技术要点：**
+- `probe_rules` 表新增 `url`、`expect_status`、`expect_body` 字段
+- `ProbeResult` 新增 `http_status`、`ssl_expiry_days`、`ssl_issuer`、`ssl_expiry_date`
+- VM 新指标：`opsboard_probe_ssl_days_left`、`opsboard_probe_http_status`
+- 前端表单按协议类型动态显示字段
+
+### 3.2 服务器自定义分组
+
+**优先级：P1** — 已有详细设计，独立模块，可立即开发。
+
+**设计文档：** `docs/superpowers/specs/2026-03-26-v3-enhancements-design.md` 功能 2
+
+| 功能 | 说明 |
+|------|------|
+| 分组管理 | 自定义分组（如"生产环境"、"测试环境"），CRUD + 排序 |
+| 服务器归组 | 每台服务器可归属一个分组，支持下拉选择切换 |
+| 分组展示 | 服务器列表页按分组折叠展示，组头显示名称 + 在线数/总数 |
+
+**技术要点：**
+- 新建 `server_groups` 表
+- `servers` 表新增 `group_id` 字段
+- API：分组 CRUD + `PUT /servers/:id/group`
+- Dashboard API 返回 groups 列表
+
+### 3.3 仪表盘全面增强
+
+**优先级：P2** — 已有详细设计，依赖 3.1 和 3.2。
+
+**设计文档：** `docs/superpowers/specs/2026-03-26-v3-enhancements-design.md` 功能 3
+
+| 功能 | 说明 |
+|------|------|
+| 统计卡片扩展 | 从 4 张扩展为 6 张：+告警中 + 即将到期 |
+| 摘要区域（新增） | 3 列：活跃告警摘要 + RDS 状态概览 + 30 天内到期预警 |
+| 服务器分组展示 | 服务器列表按分组折叠，组头显示在线数/总数 |
+| 实时更新 | 服务器 WebSocket + 告警 WebSocket + RDS/到期 60 秒轮询 |
+
+### 3.4 用户权限管理
+
+**优先级：P2** — 远程操作功能的安全基础。
 
 | 功能 | 说明 |
 |------|------|
 | 多用户账号 | 管理员可创建/编辑/禁用用户账号，独立密码 |
-| 角色模型 | `admin`（全权限）/ `operator`（可确认告警、查看所有数据，不能修改配置）/ `viewer`（纯只读） |
+| 角色模型 | `admin`（全权限）/ `operator`（可确认告警、查看数据，不能修改配置）/ `viewer`（纯只读） |
 | 权限控制 | 后端 API 级别鉴权，前端按角色隐藏操作按钮 |
-| 操作审计日志 | 记录关键操作（创建规则、确认告警、删除资产、用户管理等），含操作人、时间、详情 |
+| 操作审计日志 | 记录关键操作，含操作人、时间、详情 |
 | 审计日志查看 | 系统信息页新增"操作日志"Tab |
 
 **技术方案：**
 - SQLite 新增 `users` 表（id, username, password_hash, role, enabled, created_at）
 - 新增 `audit_logs` 表（id, user_id, action, target, detail, created_at）
-- JWT payload 增加 `role` 字段
-- Gin 中间件按 role 校验 API 权限
+- JWT payload 增加 `role` 字段，Gin 中间件按 role 校验
 - 密码使用 bcrypt 哈希
 
-### 3.2 远程日志查看
+### 3.5 远程日志查看
 
-**优先级：P2（高价值）** — 运维最高频的远程操作之一。
+**优先级：P3** — 运维最高频的远程操作之一。
 
 | 功能 | 说明 |
 |------|------|
 | 日志文件列表 | Agent 扫描配置的日志目录，上报文件名/大小/修改时间 |
-| 实时日志流 | 类似 `tail -f`，Agent 通过 gRPC 双向流推送新增日志行到前端 |
+| 实时日志流 | 类似 `tail -f`，Agent 通过 gRPC 双向流推送新增日志行 |
 | 历史日志查看 | 按行范围读取日志文件内容，支持上下翻页 |
-| 关键词高亮 | ERROR 红色、WARN 黄色、INFO 蓝色，支持自定义关键词 |
+| 关键词高亮 | ERROR 红色、WARN 黄色、INFO 蓝色 |
 | 日志搜索 | 在指定文件中 grep 关键词，返回匹配行和上下文 |
 
 **技术方案：**
-- Agent 配置 `log_dirs: ["/var/log", "/opt/app/logs"]`
-- gRPC 新增 `ListLogFiles`、`TailLog`（server streaming）、`SearchLog` 方法
-- 前端新增日志查看页面，支持选择服务器 → 选择文件 → 实时/搜索
-- 日志行量大，前端使用虚拟滚动（仅渲染可见行）
+- Agent 配置 `log_dirs`
+- gRPC 新增 `ListLogFiles`、`TailLog`（server streaming）、`SearchLog`
+- 前端虚拟滚动渲染大量日志行
 
-### 3.3 远程进程管理
+### 3.6 远程进程管理
 
-**优先级：P3（高价值）** — 与日志查看互补。
+**优先级：P3** — 与日志查看互补。
 
 | 功能 | 说明 |
 |------|------|
@@ -100,31 +150,20 @@
 | systemd 服务管理 | 展示 systemd 服务状态列表，支持 start/stop/restart |
 
 **技术方案：**
-- gRPC 新增 `ListProcesses`、`KillProcess`、`ListServices`、`ControlService` 方法
-- Agent 使用 `gopsutil/process` 采集进程信息
-- 进程操作需经过权限检查（viewer 不可操作）
+- gRPC 新增 `ListProcesses`、`KillProcess`、`ListServices`、`ControlService`
+- Agent 使用 `gopsutil/process`
 - 前端在服务器详情页新增"进程"和"服务"Tab
 
-### 3.4 仪表盘增强
+### 3.7 运维基础设施
 
-**优先级：P4（体验提升）**
-
-| 功能 | 说明 |
-|------|------|
-| 全局搜索 | 顶栏搜索框（当前为预留），快速定位服务器/资产/告警规则 |
-| 端口 24h 可用率 | 端口监控卡片增加 sparkline 趋势线 + 24h 可用率百分比（查 VM 历史数据） |
-| 告警概览集成 | 仪表盘增加"活跃告警"卡片区域，展示当前 firing 事件摘要 |
-
-### 3.5 运维基础设施
-
-**优先级：P5（稳定性保障）**
+**优先级：P4**
 
 | 任务 | 说明 |
 |------|------|
-| Agent systemd 服务 | 为各服务器 Agent 创建 systemd service 文件，开机自启 + 异常自动重启 |
-| Server systemd 服务 | OpsBoard Server 的 systemd service，含 ExecStartPre 检查 |
-| Docker 权限修复 | .62 服务器 Docker socket 权限问题，Agent 加入 docker 组 |
-| 一键部署脚本 | `deploy.sh`：编译 → SCP → 停服 → 替换 → 启动 → 验证，支持指定目标（server/agent/web） |
+| Agent systemd 服务 | 为各服务器 Agent 创建 systemd service，开机自启 + 异常重启 |
+| Server systemd 服务 | OpsBoard Server 的 systemd service |
+| Docker 权限修复 | .62 服务器 Docker socket 权限问题 |
+| 一键部署脚本 | `deploy.sh`：编译 → SCP → 停服 → 替换 → 启动 → 验证 |
 
 ---
 
@@ -132,19 +171,20 @@
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ Phase 1: 用户权限管理                                │
-│   多用户 → 角色鉴权 → 审计日志                        │
-│   （其他远程操作功能的安全基础）                        │
+│ Phase 1: HTTP/SSL 探测 + 服务器分组（独立，可并行）     │
+│   已有完整设计文档，可直接进入实现计划                    │
 ├─────────────────────────────────────────────────────┤
-│ Phase 2: 远程日志查看                                │
-│   Agent 日志扫描 → gRPC 流式传输 → 前端日志查看器      │
+│ Phase 2: 仪表盘增强 + 用户权限管理                     │
+│   仪表盘依赖 Phase 1 的分组和 SSL 数据                 │
+│   权限管理为 Phase 3 远程操作的安全基础                  │
 ├─────────────────────────────────────────────────────┤
-│ Phase 3: 远程进程管理                                │
-│   进程采集 → 进程列表页 → 远程操作                     │
+│ Phase 3: 远程日志查看 + 远程进程管理                    │
+│   需要权限控制（依赖 Phase 2）                         │
+│   需要 gRPC 协议扩展 + Agent 升级                     │
 ├─────────────────────────────────────────────────────┤
-│ Phase 4: 仪表盘增强 + 运维基础设施                    │
-│   全局搜索 + 可用率 + systemd + 部署脚本              │
+│ Phase 4: 运维基础设施                                 │
+│   systemd 服务 + 部署脚本（可穿插在任何阶段进行）        │
 └─────────────────────────────────────────────────────┘
 ```
 
-用户权限管理必须最先做，因为远程进程管理（kill 进程）和日志查看涉及敏感操作，需要权限控制。
+Phase 1 的 HTTP/SSL 探测和服务器分组已有完整设计文档（含数据模型、API、前端变更），可直接编写实现计划并执行。
