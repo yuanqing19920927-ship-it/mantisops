@@ -287,7 +287,9 @@ func GenerateKeyHex() (string, error) {
     return hex.EncodeToString(key), nil
 }
 
-// LoadKey 按优先级加载加密密钥：环境变量 > 配置文件 > 自动生成
+// LoadKey 按优先级加载加密密钥：环境变量 > 配置文件。
+// 没有配置时返回 error，由 main.go 决定是否自动生成并写回 server.yaml。
+// 绝不返回一个无法持久化的临时密钥。
 func LoadKey(configKeyHex string) ([]byte, error) {
     // 1. 环境变量
     if envKey := os.Getenv("OPSBOARD_ENCRYPTION_KEY"); envKey != "" {
@@ -297,13 +299,33 @@ func LoadKey(configKeyHex string) ([]byte, error) {
     if configKeyHex != "" {
         return ParseKeyHex(configKeyHex)
     }
-    // 3. 自动生成
-    keyHex, err := GenerateKeyHex()
-    if err != nil {
-        return nil, err
+    // 3. 未配置 → 返回错误，不自动生成临时密钥
+    return nil, fmt.Errorf("encryption_key not configured: set OPSBOARD_ENCRYPTION_KEY env var or encryption_key in server.yaml")
+}
+
+// EnsureKey 在 main.go 中调用：LoadKey 失败时自动生成密钥并写回 configPath。
+// 如果写回也失败（只读文件系统），log.Fatal 终止启动，因为无持久密钥 = 凭据不可恢复。
+func EnsureKey(configKeyHex, configPath string) ([]byte, error) {
+    key, err := LoadKey(configKeyHex)
+    if err == nil {
+        return key, nil
     }
-    fmt.Printf("[WARN] encryption_key not configured, auto-generated: %s\n", keyHex)
-    fmt.Println("[WARN] Please save this key to server.yaml or OPSBOARD_ENCRYPTION_KEY env var. Key loss = credential loss.")
+    // 自动生成
+    keyHex, genErr := GenerateKeyHex()
+    if genErr != nil {
+        return nil, genErr
+    }
+    // 尝试追加写回配置文件
+    f, writeErr := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0644)
+    if writeErr != nil {
+        return nil, fmt.Errorf("auto-generated key %s but cannot write to %s: %w. "+
+            "Set OPSBOARD_ENCRYPTION_KEY env var manually", keyHex, configPath, writeErr)
+    }
+    defer f.Close()
+    if _, writeErr = fmt.Fprintf(f, "\nencryption_key: \"%s\"\n", keyHex); writeErr != nil {
+        return nil, fmt.Errorf("failed to write key to %s: %w", configPath, writeErr)
+    }
+    log.Printf("[crypto] encryption_key auto-generated and saved to %s", configPath)
     return ParseKeyHex(keyHex)
 }
 ```
@@ -755,13 +777,13 @@ git commit -m "refactor(api): replace SetupRouter params with RouterDeps struct"
 - `GetAccount(id int) (*CloudAccount, error)`
 - `ListAccounts() ([]CloudAccount, error)`
 - `UpdateAccountSyncState(id int, state, syncError string) error`
-- `DeleteAccount(id int) error` — 仅删 cloud_accounts 行，ON DELETE CASCADE 处理 cloud_instances
-- `UpsertInstance(accountID int, inst *CloudInstance) error` — INSERT OR REPLACE
+- `DeleteAccountRow(tx *sql.Tx, id int) error` — 在调用方提供的事务内删 cloud_accounts 行（ON DELETE CASCADE 处理 cloud_instances）
+- `UpsertInstance(accountID int, inst *CloudInstance) error` — INSERT ... ON CONFLICT(cloud_account_id, instance_id) DO UPDATE SET instance_name=, region_id=, spec=, engine=, endpoint=, extra=, updated_at=; 注意 **不更新 id、monitored、host_id**，确保实例主键稳定、用户的启用状态不被重新同步覆盖
 - `ListInstances(accountID int) ([]CloudInstance, error)`
 - `ConfirmInstances(ids []int, serverStore *ServerStore) error` — 事务内：设 monitored=1 + ECS 注册 servers
 - `LoadMonitoredInstances() (ecs []CloudInstance, rds []CloudInstance, error)` — 联合查询 synced/partial + monitored=1
 - `GetDeleteImpact(hostIDs []string) (*DeleteImpact, error)` — 查 assets/probe_rules/alert_rules/alert_events 数量
-- `CascadeDeleteServers(hostIDs []string) error` — 事务内按顺序清理所有关联数据
+- `CascadeDeleteServers(tx *sql.Tx, hostIDs []string) error` — **在调用方提供的事务内**按顺序清理 alert_notifications → alert_events → alert_rules → probe_rules → assets → servers。不自己开事务。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -795,8 +817,8 @@ go get github.com/alibabacloud-go/rds-20140815/v6
 - `DiscoverECS(ak, sk string, regionIDs []string) ([]CloudInstance, error)`
 - `DiscoverRDS(ak, sk string, regionIDs []string) ([]CloudInstance, error)`
 - `ConfirmInstances(instanceIDs []int) error` — 委托给 CloudStore.ConfirmInstances
-- `DeleteAccount(accountID int, force bool) (impact *DeleteImpact, err error)` — force=false 返回摘要，force=true 执行级联删除
-- `DeleteInstance(instanceID int, force bool) (impact *DeleteImpact, err error)`
+- `DeleteAccount(accountID int, force bool) (impact *DeleteImpact, err error)` — force=false 返回摘要，force=true 在**单个 db.BeginTx 事务**内依次调用 `cloudStore.CascadeDeleteServers(tx, hostIDs)` 和 `cloudStore.DeleteAccountRow(tx, id)`，然后 tx.Commit。保证全部成功或全部回滚。
+- `DeleteInstance(instanceID int, force bool) (impact *DeleteImpact, err error)` — 同上，单事务保证
 
 WebSocket 进度广播集成到 Sync 流程中。
 
@@ -1109,19 +1131,35 @@ git commit -m "feat(api): add managed server endpoints with deploy/test-connecti
 
 - [ ] **Step 1: NewHandler 增加 onRegister 参数**
 
+现有签名保持不变，仅新增 `onRegister` 字段：
+
 ```go
 type Handler struct {
+    pb.UnimplementedAgentServiceServer
     serverStore *store.ServerStore
-    onMetrics   func(payload *pb.MetricsPayload)
-    onRegister  func(hostID string) // 新增
+    onMetrics   func(hostID string, payload *pb.MetricsPayload) // 保持现有签名不变
+    onRegister  func(hostID string)                              // 新增
 }
 
-func NewHandler(ss *store.ServerStore, onMetrics func(*pb.MetricsPayload), onRegister func(string)) *Handler
+func NewHandler(ss *store.ServerStore, onMetrics func(string, *pb.MetricsPayload), onRegister func(string)) *Handler
 ```
 
-- [ ] **Step 2: Register 方法中调用 onRegister**
+注意：`onMetrics` 签名是 `func(string, *pb.MetricsPayload)`（两个参数），与现有 `MetricsCollector.Handle` 一致。计划中不修改 MetricsCollector。
+
+- [ ] **Step 2: Register 方法末尾添加 onRegister 调用**
+
+```go
+// 在现有 return 之前：
+if h.onRegister != nil {
+    h.onRegister(req.HostId)
+}
+```
 
 - [ ] **Step 3: main.go 中传入 deployer.NotifyRegistered**
+
+```go
+handler := grpcpkg.NewHandler(serverStore, mc.Handle, deployer.NotifyRegistered)
+```
 
 - [ ] **Step 4: 编译验证全量构建**
 
@@ -1159,13 +1197,40 @@ git commit -m "feat(grpc): add onRegister callback for deploy notification"
 ### Task 19: 前端 API 客户端
 
 **Files:**
+- Modify: `web/src/api/client.ts`
 - Create: `web/src/api/onboarding.ts`
 
-- [ ] **Step 1: 实现所有 API 调用**
+- [ ] **Step 1: 从 client.ts 导出 axios 实例**
 
-复用 `api/client.ts` 中已有的 `get`/`post`/`put`/`del` helper，但函数定义放在独立文件中。
+现有 `client.ts` 中的 `api` 实例是模块私有的（`const api = axios.create(...)` 无 export）。需要将其导出，以便 `onboarding.ts` 复用同一个 axios 实例（含 baseURL、token 拦截器、401 处理）：
 
-- [ ] **Step 2: Commit**
+```typescript
+// client.ts 修改：将 const api 改为 export const api
+export const api = axios.create({ baseURL: '/api/v1' })
+```
+
+现有文件末尾的 `export default api` 保留，两者等效但 named export 更明确。
+
+- [ ] **Step 2: 在 onboarding.ts 中 import 并使用**
+
+```typescript
+// api/onboarding.ts
+import { api } from './client'
+import type { ManagedServer, CloudAccount, ... } from '../types/onboarding'
+
+export async function testSSHConnection(data: SSHTestRequest): Promise<SSHTestResult> {
+    const { data: result } = await api.post('/managed-servers/test-connection', data)
+    return result
+}
+// ... 其余所有接入管理 API 函数
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add web/src/api/client.ts web/src/api/onboarding.ts
+git commit -m "feat(web): add onboarding API client, export shared axios instance"
+```
 
 ---
 
