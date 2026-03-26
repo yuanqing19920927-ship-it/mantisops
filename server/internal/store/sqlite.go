@@ -7,7 +7,7 @@ import (
 )
 
 func InitSQLite(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +115,72 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_alert_notifications_status ON alert_notifications(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_alert_notifications_event_id ON alert_notifications(event_id)`,
 		`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`,
+
+		// Credentials (encrypted credentials)
+		`CREATE TABLE IF NOT EXISTS credentials (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			name        TEXT NOT NULL,
+			type        TEXT NOT NULL,
+			encrypted   TEXT NOT NULL,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// Managed servers (UI-deployed servers)
+		`CREATE TABLE IF NOT EXISTS managed_servers (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			host            TEXT NOT NULL,
+			ssh_port        INTEGER DEFAULT 22,
+			ssh_user        TEXT NOT NULL,
+			credential_id   INTEGER NOT NULL REFERENCES credentials(id),
+			detected_arch   TEXT DEFAULT '',
+			ssh_host_key    TEXT DEFAULT '',
+			install_options TEXT DEFAULT '{}',
+			install_state   TEXT DEFAULT 'pending',
+			install_error   TEXT DEFAULT '',
+			agent_host_id   TEXT DEFAULT '',
+			agent_version   TEXT DEFAULT '',
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_managed_servers_host ON managed_servers(host)`,
+		`CREATE INDEX IF NOT EXISTS idx_managed_servers_agent_host_id ON managed_servers(agent_host_id)`,
+
+		// Cloud accounts
+		`CREATE TABLE IF NOT EXISTS cloud_accounts (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			name            TEXT NOT NULL,
+			provider        TEXT DEFAULT 'aliyun',
+			credential_id   INTEGER NOT NULL REFERENCES credentials(id),
+			region_ids      TEXT DEFAULT '[]',
+			auto_discover   INTEGER DEFAULT 1,
+			sync_state      TEXT DEFAULT 'pending',
+			sync_error      TEXT DEFAULT '',
+			last_synced_at  DATETIME,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// Cloud instances
+		`CREATE TABLE IF NOT EXISTS cloud_instances (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			cloud_account_id INTEGER NOT NULL REFERENCES cloud_accounts(id) ON DELETE CASCADE,
+			instance_type    TEXT NOT NULL,
+			instance_id      TEXT NOT NULL,
+			host_id          TEXT NOT NULL,
+			instance_name    TEXT DEFAULT '',
+			region_id        TEXT DEFAULT '',
+			spec             TEXT DEFAULT '',
+			engine           TEXT DEFAULT '',
+			endpoint         TEXT DEFAULT '',
+			monitored        INTEGER DEFAULT 0,
+			extra            TEXT DEFAULT '{}',
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_account_instance ON cloud_instances(cloud_account_id, instance_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_host_id ON cloud_instances(host_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_cloud_instances_type ON cloud_instances(instance_type)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
