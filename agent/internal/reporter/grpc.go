@@ -139,6 +139,41 @@ func (r *Reporter) reportMetrics() {
 			})
 		}
 	}
+	// Docker 采集
+	if r.cfg.Collect.Docker {
+		if containers, err := collector.CollectDocker(); err == nil {
+			for _, c := range containers {
+				payload.Containers = append(payload.Containers, &pb.DockerMetrics{
+					ContainerId: c.ContainerID,
+					Name:        c.Name,
+					Image:       c.Image,
+					State:       c.State,
+					Status:      c.Status,
+					CpuPercent:  c.CPUPercent,
+					MemoryUsage: c.MemoryUsage,
+					MemoryLimit: c.MemoryLimit,
+					Ports:       c.Ports,
+				})
+			}
+		} else {
+			log.Printf("docker collect error: %v", err)
+		}
+	}
+
+	// GPU 采集
+	if r.cfg.Collect.GPU {
+		if gpu, err := collector.CollectGPU(); err == nil {
+			payload.Gpu = &pb.GpuMetrics{
+				Name:         gpu.Name,
+				UsagePercent: gpu.UsagePercent,
+				MemoryUsed:   gpu.MemoryUsed,
+				MemoryTotal:  gpu.MemoryTotal,
+				Temperature:  gpu.Temperature,
+				PowerUsage:   gpu.PowerUsage,
+			}
+		}
+	}
+
 	if _, err := r.client.ReportMetrics(r.authCtx(), payload); err != nil {
 		log.Printf("report error: %v", err)
 	}
