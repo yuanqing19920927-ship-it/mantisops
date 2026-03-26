@@ -3,6 +3,7 @@ import { MainLayout } from './components/Layout/MainLayout'
 import { useThemeStore } from './stores/themeStore'
 import { useEffect } from 'react'
 import Dashboard from './pages/Dashboard'
+import ServerDetail from './pages/ServerDetail'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -27,7 +28,7 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/servers" element={<Placeholder title="服务器列表" />} />
-          <Route path="/servers/:id" element={<Placeholder title="服务器详情" />} />
+          <Route path="/servers/:id" element={<ServerDetail />} />
           <Route path="/probes" element={<Placeholder title="端口监控" />} />
           <Route path="/assets" element={<Placeholder title="资产信息" />} />
           <Route path="/settings" element={<Placeholder title="设置" />} />
