@@ -202,66 +202,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Agent list */}
-      <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">hub</span>
-          </div>
-          <h2 className="text-base font-semibold text-[#495057]">已注册代理</h2>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#2ca07a]/10 text-[#2ca07a] font-semibold">
-            {servers.length}
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[#f8f9fa]">
-                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">主机名</th>
-                <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">主机 ID</th>
-                <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">版本</th>
-                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">最后心跳</th>
-                <th className="text-center text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {servers.map((s, idx) => (
-                <tr
-                  key={s.host_id}
-                  className={`hover:bg-[#f8f9fa] transition-colors ${idx < servers.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
-                >
-                  <td className="px-5 py-3.5">
-                    <span className="text-[#495057] font-medium text-sm">{s.hostname}</span>
-                  </td>
-                  <td className="hidden sm:table-cell px-5 py-3.5">
-                    <span className="text-[11px] font-mono bg-[#f3f6f9] text-[#495057] px-2 py-0.5 rounded">
-                      {s.host_id}
-                    </span>
-                  </td>
-                  <td className="hidden sm:table-cell px-5 py-3.5">
-                    <span className="text-[12px] text-[#878a99]">{s.agent_version || '-'}</span>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <span className="text-[12px] text-[#878a99]">{s.last_seen ? timeSince(s.last_seen) : '-'}</span>
-                  </td>
-                  <td className="px-5 py-3.5 text-center">
-                    <StatusBadge status={s.status} label={s.status === 'online' ? '在线' : '离线'} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {servers.length === 0 && (
-            <div className="py-12 text-center">
-              <span className="material-symbols-outlined text-3xl text-[#ced4da] mb-2 block">devices_off</span>
-              <p className="text-[#878a99] text-sm">暂无已注册的代理</p>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* ── 接入管理 ── */}
       <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
         <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
@@ -516,6 +456,66 @@ export default function Settings() {
             <div className="py-10 text-center">
               <span className="material-symbols-outlined text-3xl text-[#ced4da] mb-2 block">cloud_off</span>
               <p className="text-[#878a99] text-sm">暂无云账号</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Agent list */}
+      <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
+            <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">hub</span>
+          </div>
+          <h2 className="text-base font-semibold text-[#495057]">已注册代理</h2>
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#2ca07a]/10 text-[#2ca07a] font-semibold">
+            {servers.length}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#f8f9fa]">
+                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">主机名</th>
+                <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">主机 ID</th>
+                <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">版本</th>
+                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">最后心跳</th>
+                <th className="text-center text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {servers.map((s, idx) => (
+                <tr
+                  key={s.host_id}
+                  className={`hover:bg-[#f8f9fa] transition-colors ${idx < servers.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
+                >
+                  <td className="px-5 py-3.5">
+                    <span className="text-[#495057] font-medium text-sm">{s.hostname}</span>
+                  </td>
+                  <td className="hidden sm:table-cell px-5 py-3.5">
+                    <span className="text-[11px] font-mono bg-[#f3f6f9] text-[#495057] px-2 py-0.5 rounded">
+                      {s.host_id}
+                    </span>
+                  </td>
+                  <td className="hidden sm:table-cell px-5 py-3.5">
+                    <span className="text-[12px] text-[#878a99]">{s.agent_version || '-'}</span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="text-[12px] text-[#878a99]">{s.last_seen ? timeSince(s.last_seen) : '-'}</span>
+                  </td>
+                  <td className="px-5 py-3.5 text-center">
+                    <StatusBadge status={s.status} label={s.status === 'online' ? '在线' : '离线'} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {servers.length === 0 && (
+            <div className="py-12 text-center">
+              <span className="material-symbols-outlined text-3xl text-[#ced4da] mb-2 block">devices_off</span>
+              <p className="text-[#878a99] text-sm">暂无已注册的代理</p>
             </div>
           )}
         </div>
