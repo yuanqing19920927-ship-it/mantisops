@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1440" />
+  <title>OpsBoard — 服务器监控面板</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 1440px;
+      height: 900px;
+      overflow: hidden;
+      font-family: "PingFang SC", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+      background: #f3f3f9;
+      color: #495057;
+      display: flex;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Sidebar ──────────────────────────────────────────────── */
+    .sidebar {
+      width: 220px;
+      min-width: 220px;
+      height: 900px;
+      background: #212529;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      height: 64px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo svg {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo-text {
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .sidebar-section-label {
+      color: #6c757d;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 16px 20px 8px;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 0 12px;
+      overflow-y: auto;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 6px;
+      margin-bottom: 2px;
+      color: #adb5bd;
+      font-size: 13.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .nav-item.active {
+      color: #2ca07a;
+      background: rgba(44, 160, 122, 0.1);
+    }
+
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      opacity: 0.9;
+    }
+
+    .nav-item.active svg {
+      color: #2ca07a;
+    }
+
+    /* ─── Main Area ─────────────────────────────────────────────── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 900px;
+      overflow: hidden;
+    }
+
+    /* Topbar */
+    .topbar {
+      height: 64px;
+      background: #ffffff;
+      border-bottom: 1px solid #e9ecef;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      flex-shrink: 0;
+    }
+
+    .topbar-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #212529;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .topbar-badge {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #f3f3f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .topbar-badge svg {
+      width: 18px;
+      height: 18px;
+      color: #878a99;
+    }
+
+    .notif-dot {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f06548;
+      border: 2px solid #fff;
+    }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2ca07a 0%, #0ab39c 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    /* Content */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 28px;
+      min-height: 0;
+    }
+
+    /* ─── Stat Cards ───────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .stat-card {
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 1px 2px rgba(56,65,74,0.15);
+      padding: 18px 20px;
+    }
+
+    .stat-card-inner {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .stat-info { flex: 1; min-width: 0; }
+
+    .stat-label {
+      font-size: 12.5px;
+      color: #878a99;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .stat-value-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #212529;
+      line-height: 1;
+    }
+
+    .stat-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    .badge-green { background: rgba(10,179,156,0.1); color: #0ab39c; }
+    .badge-red   { background: rgba(240,101,72,0.1);  color: #f06548; }
+    .badge-yellow{ background: rgba(247,184,75,0.1);  color: #f7b84b; }
+    .badge-blue  { background: rgba(97,188,247,0.1);  color: #61bcf7; }
+
+    .stat-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .stat-icon svg { width: 22px; height: 22px; }
+
+    .si-green  { background: rgba(44,160,122,0.1);  color: #2ca07a; }
+    .si-red    { background: rgba(240,101,72,0.1);  color: #f06548; }
+    .si-yellow { background: rgba(247,184,75,0.1);  color: #f7b84b; }
+    .si-blue   { background: rgba(97,188,247,0.1);  color: #61bcf7; }
+
+    /* ─── Main Grid ────────────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 20px;
+      height: calc(900px - 64px - 24px - 24px - 102px - 22px);
+      min-height: 0;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 1px 2px rgba(56,65,74,0.15);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid #f0f0f0;
+      flex-shrink: 0;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #212529;
+    }
+
+    .card-link {
+      font-size: 12px;
+      color: #2ca07a;
+      text-decoration: none;
+    }
+
+    /* ─── Server List ──────────────────────────────────────────── */
+    .server-list {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+    }
+
+    .group-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #495057;
+    }
+
+    .group-count {
+      font-size: 11px;
+      color: #878a99;
+    }
+
+    .group-chevron {
+      width: 14px;
+      height: 14px;
+      color: #878a99;
+      transform: rotate(90deg);
+    }
+
+    .server-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #f8f9fa;
+      transition: background 0.12s;
+    }
+
+    .server-row:hover { background: #fafafa; }
+
+    .server-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .server-icon svg { width: 18px; height: 18px; }
+
+    .server-name-block { width: 160px; flex-shrink: 0; min-width: 0; }
+
+    .server-name-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .server-hostname {
+      font-size: 13px;
+      font-weight: 600;
+      color: #212529;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .status-online { background: rgba(10,179,156,0.1); color: #0ab39c; }
+    .status-offline { background: rgba(240,101,72,0.1); color: #f06548; }
+
+    .server-ip {
+      font-size: 11px;
+      color: #adb5bd;
+      font-family: "SF Mono", "Menlo", monospace;
+    }
+
+    /* Progress bar in list */
+    .bar-block { width: 110px; flex-shrink: 0; }
+    .bar-label-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .bar-label { font-size: 10.5px; color: #adb5bd; }
+    .bar-value { font-size: 10.5px; color: #878a99; font-weight: 600; }
+    .bar-track {
+      height: 5px;
+      background: #e9ecef;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 10px;
+      transition: width 0.4s;
+    }
+    .bar-green  { background: #0ab39c; }
+    .bar-yellow { background: #f7b84b; }
+    .bar-red    { background: #f06548; }
+    .bar-gray   { background: #ced4da; }
+
+    /* Net speed */
+    .net-block {
+      margin-left: auto;
+      text-align: right;
+      flex-shrink: 0;
+      min-width: 72px;
+    }
+    .net-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 3px;
+      font-size: 11px;
+      color: #878a99;
+    }
+    .net-row + .net-row { margin-top: 3px; }
+    .arrow-down { color: #f06548; }
+    .arrow-up   { color: #0ab39c; }
+
+    /* ─── Right panel ──────────────────────────────────────────── */
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Probe list */
+    .probe-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid #f0f0f0;
+      background: #f8f9fa;
+      margin-bottom: 6px;
+    }
+
+    .probe-item.down {
+      background: rgba(240,101,72,0.04);
+      border-color: rgba(240,101,72,0.2);
+    }
+
+    .probe-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot-up   { background: #0ab39c; box-shadow: 0 0 7px rgba(10,179,156,0.55); }
+    .dot-down { background: #f06548; box-shadow: 0 0 7px rgba(240,101,72,0.55); }
+
+    .probe-name { font-size: 12.5px; font-weight: 500; color: #495057; margin-left: 8px; flex: 1; }
+    .probe-name.down { color: #f06548; }
+
+    .probe-tag {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: #e9ecef;
+      color: #878a99;
+      margin-right: 6px;
+    }
+
+    .probe-latency { font-size: 11px; color: #adb5bd; }
+    .probe-latency.down { color: #f06548; }
+
+    /* Top CPU */
+    .cpu-rank-item { margin-bottom: 14px; }
+    .cpu-rank-item:last-child { margin-bottom: 0; }
+
+    .cpu-rank-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .cpu-rank-name { font-size: 13px; font-weight: 600; color: #212529; }
+    .cpu-rank-value { font-size: 13px; font-weight: 700; }
+    .cpu-rank-meta { font-size: 11px; color: #adb5bd; margin-top: 4px; }
+
+    .cpu-bar-track {
+      height: 6px;
+      background: #e9ecef;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .cpu-bar-fill {
+      height: 100%;
+      border-radius: 6px;
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 10px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
+<aside class="sidebar">
+
+  <!-- Logo -->
+  <div class="sidebar-logo">
+    <svg viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="128" height="128" rx="28" fill="#1a1f2e"/>
+      <rect x="4" y="4" width="120" height="120" rx="24" fill="#212a3e" stroke="#2ca07a" stroke-width="2" stroke-opacity="0.3"/>
+      <rect x="20" y="26" width="88" height="58" rx="8" fill="#2d3549" stroke="#2ca07a" stroke-width="2.5" stroke-opacity="0.5"/>
+      <rect x="25" y="31" width="78" height="48" rx="4" fill="#0f1520"/>
+      <polyline points="32,58 44,58 50,42 56,72 62,48 68,62 74,58 96,58" stroke="#2ca07a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <path d="M52 88 L76 88 L72 100 L56 100 Z" fill="#2d3549"/>
+      <rect x="46" y="100" width="36" height="4" rx="2" fill="#2d3549"/>
+      <circle cx="38" cy="68" r="3" fill="#0ab39c" opacity="0.9"/>
+      <circle cx="90" cy="46" r="3" fill="#f7b84b" opacity="0.9"/>
+    </svg>
+    <span class="sidebar-logo-text">OpsBoard</span>
+  </div>
+
+  <p class="sidebar-section-label">导航菜单</p>
+
+  <nav class="sidebar-nav">
+
+    <!-- 仪表盘 (active) -->
+    <div class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      </svg>
+      仪表盘
+    </div>
+
+    <!-- 服务器 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+        <circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/>
+      </svg>
+      服务器
+    </div>
+
+    <!-- 容器管理 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+      </svg>
+      容器管理
+    </div>
+
+    <!-- 端口监控 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/>
+      </svg>
+      端口监控
+    </div>
+
+    <!-- 本地业务 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+        <polyline points="16 21 12 17 8 21"/><polyline points="8 3 12 7 16 3"/>
+      </svg>
+      本地业务
+    </div>
+
+    <!-- 告警中心 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        <circle cx="19" cy="5" r="3" fill="#f06548" stroke="none"/>
+      </svg>
+      告警中心
+    </div>
+
+    <!-- 资源到期 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+        <path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/>
+      </svg>
+      资源到期
+    </div>
+
+    <!-- 系统信息 -->
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+      </svg>
+      系统信息
+    </div>
+
+  </nav>
+</aside>
+
+<!-- ═══════════════════════ MAIN ═══════════════════════ -->
+<div class="main">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-title">仪表盘</div>
+    <div class="topbar-right">
+      <!-- Notification bell -->
+      <div class="topbar-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="notif-dot"></span>
+      </div>
+      <!-- Dark mode toggle placeholder -->
+      <div class="topbar-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+      </div>
+      <div class="avatar">管</div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- ── Stats Row ── -->
+    <div class="stats-row">
+
+      <!-- Card 1: 服务器在线数 -->
+      <div class="stat-card">
+        <div class="stat-card-inner">
+          <div class="stat-info">
+            <div class="stat-label">服务器在线数</div>
+            <div class="stat-value-row">
+              <span class="stat-value">14 / 16</span>
+              <span class="stat-badge badge-red">87.5%</span>
+            </div>
+          </div>
+          <div class="stat-icon si-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+              <circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: 运行中容器 -->
+      <div class="stat-card">
+        <div class="stat-card-inner">
+          <div class="stat-info">
+            <div class="stat-label">运行中容器</div>
+            <div class="stat-value-row">
+              <span class="stat-value">47</span>
+              <span class="stat-badge badge-blue">Docker</span>
+            </div>
+          </div>
+          <div class="stat-icon si-blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: 端口探测正常 -->
+      <div class="stat-card">
+        <div class="stat-card-inner">
+          <div class="stat-info">
+            <div class="stat-label">端口探测正常</div>
+            <div class="stat-value-row">
+              <span class="stat-value">11 / 12</span>
+              <span class="stat-badge badge-red">92%</span>
+            </div>
+          </div>
+          <div class="stat-icon si-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4: 平均 CPU -->
+      <div class="stat-card">
+        <div class="stat-card-inner">
+          <div class="stat-info">
+            <div class="stat-label">平均 CPU 使用率</div>
+            <div class="stat-value-row">
+              <span class="stat-value">38.4%</span>
+              <span class="stat-badge badge-green">正常</span>
+            </div>
+          </div>
+          <div class="stat-icon si-yellow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2"/>
+              <rect x="9" y="9" width="6" height="6"/>
+              <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+              <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+              <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
+              <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /stats-row -->
+
+    <!-- ── Main Grid ── -->
+    <div class="main-grid">
+
+      <!-- Left: Server List -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">服务器状态列表</span>
+          <a class="card-link" href="#">查看全部 →</a>
+        </div>
+
+        <div class="server-list">
+
+          <!-- ╌╌ Group: 生产环境 ╌╌ -->
+          <div class="group-header">
+            <svg class="group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            <span class="group-name">生产环境</span>
+            <span class="group-count">(6/6)</span>
+          </div>
+
+          <!-- web-prod-01  CPU 72%  MEM 58%  -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(44,160,122,0.1);color:#2ca07a">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">web-prod-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">10.0.1.11</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">72%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-yellow" style="width:72%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">58%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:58%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 12.3 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 4.8 MB/s</div>
+            </div>
+          </div>
+
+          <!-- web-prod-02  CPU 45%  MEM 62% -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(44,160,122,0.1);color:#2ca07a">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">web-prod-02</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">10.0.1.12</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">45%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:45%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">62%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-yellow" style="width:62%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 8.7 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 2.1 MB/s</div>
+            </div>
+          </div>
+
+          <!-- web-prod-03  CPU 89%  MEM 77% -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(44,160,122,0.1);color:#2ca07a">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">web-prod-03</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">10.0.1.13</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">89%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-red" style="width:89%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">77%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-yellow" style="width:77%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 21.5 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 9.3 MB/s</div>
+            </div>
+          </div>
+
+          <!-- api-prod-01  CPU 33%  MEM 44% -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(44,160,122,0.1);color:#2ca07a">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">api-prod-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">10.0.2.11</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">33%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:33%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">44%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:44%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 3.2 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 1.4 MB/s</div>
+            </div>
+          </div>
+
+          <!-- api-prod-02  CPU 28%  MEM 39% -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(44,160,122,0.1);color:#2ca07a">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">api-prod-02</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">10.0.2.12</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">28%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:28%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">39%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:39%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 2.8 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 0.9 MB/s</div>
+            </div>
+          </div>
+
+          <!-- db-master-01  CPU 51%  MEM 83% -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(44,160,122,0.1);color:#2ca07a">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">db-master-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">10.0.3.10</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">51%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:51%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">83%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-red" style="width:83%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 5.6 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 3.1 MB/s</div>
+            </div>
+          </div>
+
+          <!-- ╌╌ Group: 开发测试 ╌╌ -->
+          <div class="group-header">
+            <svg class="group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            <span class="group-name">开发测试</span>
+            <span class="group-count">(3/4)</span>
+          </div>
+
+          <!-- dev-01  online -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(97,188,247,0.1);color:#61bcf7">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">dev-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">192.168.1.51</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">17%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:17%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">31%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:31%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 0.5 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 0.2 MB/s</div>
+            </div>
+          </div>
+
+          <!-- dev-02  offline -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(240,101,72,0.1);color:#f06548">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">dev-02</span>
+                <span class="status-badge status-offline">离线</span>
+              </div>
+              <div class="server-ip">192.168.1.52</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">-</span></div>
+              <div class="bar-track"><div class="bar-fill bar-gray" style="width:0%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">-</span></div>
+              <div class="bar-track"><div class="bar-fill bar-gray" style="width:0%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row" style="color:#adb5bd">— —</div>
+            </div>
+          </div>
+
+          <!-- test-01  online -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(97,188,247,0.1);color:#61bcf7">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">test-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">192.168.1.60</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">22%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:22%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">48%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:48%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 0.8 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 0.3 MB/s</div>
+            </div>
+          </div>
+
+          <!-- staging-01  offline -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(240,101,72,0.1);color:#f06548">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">staging-01</span>
+                <span class="status-badge status-offline">离线</span>
+              </div>
+              <div class="server-ip">192.168.1.70</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">-</span></div>
+              <div class="bar-track"><div class="bar-fill bar-gray" style="width:0%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">-</span></div>
+              <div class="bar-track"><div class="bar-fill bar-gray" style="width:0%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row" style="color:#adb5bd">— —</div>
+            </div>
+          </div>
+
+          <!-- ╌╌ Group: 阿里云 ECS ╌╌ -->
+          <div class="group-header">
+            <svg class="group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            <span class="group-name">阿里云 ECS</span>
+            <span class="group-count">(5/5 — 显示前5)</span>
+          </div>
+
+          <!-- ecs-hangzhou-01 -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(247,184,75,0.1);color:#f7b84b">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">ecs-hz-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">47.97.18.42</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">41%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:41%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">55%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:55%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 6.4 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 2.7 MB/s</div>
+            </div>
+          </div>
+
+          <!-- ecs-hangzhou-02 -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(247,184,75,0.1);color:#f7b84b">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">ecs-hz-02</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">47.97.18.43</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">29%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:29%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">43%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-green" style="width:43%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 3.9 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 1.2 MB/s</div>
+            </div>
+          </div>
+
+          <!-- ecs-beijing-01 -->
+          <div class="server-row">
+            <div class="server-icon" style="background:rgba(247,184,75,0.1);color:#f7b84b">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
+            </div>
+            <div class="server-name-block">
+              <div class="server-name-row">
+                <span class="server-hostname">ecs-bj-01</span>
+                <span class="status-badge status-online">在线</span>
+              </div>
+              <div class="server-ip">39.106.54.17</div>
+            </div>
+            <div class="bar-block">
+              <div class="bar-label-row"><span class="bar-label">CPU</span><span class="bar-value">67%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-yellow" style="width:67%"></div></div>
+            </div>
+            <div class="bar-block" style="margin-left:12px">
+              <div class="bar-label-row"><span class="bar-label">MEM</span><span class="bar-value">71%</span></div>
+              <div class="bar-track"><div class="bar-fill bar-yellow" style="width:71%"></div></div>
+            </div>
+            <div class="net-block">
+              <div class="net-row"><span class="arrow-down">↓</span> 9.1 MB/s</div>
+              <div class="net-row"><span class="arrow-up">↑</span> 5.5 MB/s</div>
+            </div>
+          </div>
+
+        </div><!-- /server-list -->
+      </div><!-- /card left -->
+
+      <!-- Right column -->
+      <div class="right-col">
+
+        <!-- Port Probes -->
+        <div class="card" style="flex:1;min-height:0">
+          <div class="card-header">
+            <span class="card-title">端口监控摘要</span>
+            <a class="card-link" href="#">View All</a>
+          </div>
+          <div style="padding:12px 16px;overflow-y:auto;flex:1;min-height:0">
+
+            <div class="probe-item">
+              <span class="probe-dot dot-up"></span>
+              <span class="probe-name">主站 HTTPS</span>
+              <span class="probe-tag">443</span>
+              <span class="probe-latency">18.3ms</span>
+            </div>
+
+            <div class="probe-item">
+              <span class="probe-dot dot-up"></span>
+              <span class="probe-name">API 网关</span>
+              <span class="probe-tag">8080</span>
+              <span class="probe-latency">23.7ms</span>
+            </div>
+
+            <div class="probe-item">
+              <span class="probe-dot dot-up"></span>
+              <span class="probe-name">MySQL 主库</span>
+              <span class="probe-tag">3306</span>
+              <span class="probe-latency">4.2ms</span>
+            </div>
+
+            <div class="probe-item down">
+              <span class="probe-dot dot-down"></span>
+              <span class="probe-name down">Redis 缓存</span>
+              <span class="probe-tag" style="background:rgba(240,101,72,0.1);color:#f06548">6379</span>
+              <span class="probe-latency down">连接失败</span>
+            </div>
+
+            <div class="probe-item">
+              <span class="probe-dot dot-up"></span>
+              <span class="probe-name">Nginx 负载均衡</span>
+              <span class="probe-tag">80</span>
+              <span class="probe-latency">11.5ms</span>
+            </div>
+
+            <div class="probe-item">
+              <span class="probe-dot dot-up"></span>
+              <span class="probe-name">Grafana 监控</span>
+              <span class="probe-tag">3000</span>
+              <span class="probe-latency">35.1ms</span>
+            </div>
+
+            <div class="probe-item">
+              <span class="probe-dot dot-up"></span>
+              <span class="probe-name">MinIO 对象存储</span>
+              <span class="probe-tag">9000</span>
+              <span class="probe-latency">28.6ms</span>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Top CPU -->
+        <div class="card" style="flex:0 0 auto">
+          <div class="card-header" style="border-bottom:none;padding-bottom:8px">
+            <span class="card-title">资源使用排行 Top 3</span>
+          </div>
+          <div style="padding:0 20px 16px">
+
+            <div class="cpu-rank-item">
+              <div class="cpu-rank-header">
+                <span class="cpu-rank-name">web-prod-03</span>
+                <span class="cpu-rank-value" style="color:#f06548">89.0%</span>
+              </div>
+              <div class="cpu-bar-track">
+                <div class="cpu-bar-fill bar-red" style="width:89%"></div>
+              </div>
+              <div class="cpu-rank-meta">MEM: 77.0% &nbsp;|&nbsp; 生产环境</div>
+            </div>
+
+            <div class="cpu-rank-item">
+              <div class="cpu-rank-header">
+                <span class="cpu-rank-name">web-prod-01</span>
+                <span class="cpu-rank-value" style="color:#f7b84b">72.0%</span>
+              </div>
+              <div class="cpu-bar-track">
+                <div class="cpu-bar-fill bar-yellow" style="width:72%"></div>
+              </div>
+              <div class="cpu-rank-meta">MEM: 58.0% &nbsp;|&nbsp; 生产环境</div>
+            </div>
+
+            <div class="cpu-rank-item">
+              <div class="cpu-rank-header">
+                <span class="cpu-rank-name">ecs-bj-01</span>
+                <span class="cpu-rank-value" style="color:#f7b84b">67.0%</span>
+              </div>
+              <div class="cpu-bar-track">
+                <div class="cpu-bar-fill bar-yellow" style="width:67%"></div>
+              </div>
+              <div class="cpu-rank-meta">MEM: 71.0% &nbsp;|&nbsp; 阿里云 ECS</div>
+            </div>
+
+          </div>
+        </div>
+
+      </div><!-- /right-col -->
+
+    </div><!-- /main-grid -->
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+</body>
+</html>
