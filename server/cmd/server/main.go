@@ -5,17 +5,17 @@ import (
 	"log"
 	"os"
 
-	"opsboard/server/internal/alert"
-	"opsboard/server/internal/api"
-	"opsboard/server/internal/cloud"
-	"opsboard/server/internal/collector"
-	"opsboard/server/internal/config"
-	"opsboard/server/internal/crypto"
-	"opsboard/server/internal/deployer"
-	grpcpkg "opsboard/server/internal/grpc"
-	"opsboard/server/internal/probe"
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
+	"mantisops/server/internal/alert"
+	"mantisops/server/internal/api"
+	"mantisops/server/internal/cloud"
+	"mantisops/server/internal/collector"
+	"mantisops/server/internal/config"
+	"mantisops/server/internal/crypto"
+	"mantisops/server/internal/deployer"
+	grpcpkg "mantisops/server/internal/grpc"
+	"mantisops/server/internal/probe"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
 )
 
 func main() {

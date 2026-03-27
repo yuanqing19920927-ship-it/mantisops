@@ -31,7 +31,7 @@ export default function Settings() {
   const [settingsSaved, setSettingsSaved] = useState(false)
 
   const handleSaveSettings = () => {
-    setPlatformName(editName.trim() || 'OpsBoard')
+    setPlatformName(editName.trim() || 'MantisOps')
     setPlatformSubtitle(editSubtitle.trim() || '运维监控管理平台')
     setLogoUrl(editLogo.trim() || '/logo.svg')
     setSettingsSaved(true)
@@ -155,7 +155,7 @@ export default function Settings() {
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              placeholder="OpsBoard"
+              placeholder="MantisOps"
               className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white"
             />
           </div>

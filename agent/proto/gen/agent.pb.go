@@ -1009,7 +1009,7 @@ var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\bopsboard\"\x9f\x03\n" +
+	"\vagent.proto\x12\tmantisops\"\x9f\x03\n" +
 	"\x0fRegisterRequest\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
@@ -1030,18 +1030,18 @@ const file_agent_proto_rawDesc = "" +
 	"gpu_memory\x18\x0e \x01(\x04R\tgpuMemory\"W\n" +
 	"\x10RegisterResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12'\n" +
-	"\x0freport_interval\x18\x02 \x01(\x05R\x0ereportInterval\"\xe4\x02\n" +
+	"\x0freport_interval\x18\x02 \x01(\x05R\x0ereportInterval\"\xea\x02\n" +
 	"\x0eMetricsPayload\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12&\n" +
-	"\x03cpu\x18\x03 \x01(\v2\x14.opsboard.CpuMetricsR\x03cpu\x12/\n" +
-	"\x06memory\x18\x04 \x01(\v2\x17.opsboard.MemoryMetricsR\x06memory\x12+\n" +
-	"\x05disks\x18\x05 \x03(\v2\x15.opsboard.DiskMetricsR\x05disks\x124\n" +
-	"\bnetworks\x18\x06 \x03(\v2\x18.opsboard.NetworkMetricsR\bnetworks\x127\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12'\n" +
+	"\x03cpu\x18\x03 \x01(\v2\x15.mantisops.CpuMetricsR\x03cpu\x120\n" +
+	"\x06memory\x18\x04 \x01(\v2\x18.mantisops.MemoryMetricsR\x06memory\x12,\n" +
+	"\x05disks\x18\x05 \x03(\v2\x16.mantisops.DiskMetricsR\x05disks\x125\n" +
+	"\bnetworks\x18\x06 \x03(\v2\x19.mantisops.NetworkMetricsR\bnetworks\x128\n" +
 	"\n" +
-	"containers\x18\a \x03(\v2\x17.opsboard.DockerMetricsR\n" +
-	"containers\x12&\n" +
-	"\x03gpu\x18\b \x01(\v2\x14.opsboard.GpuMetricsR\x03gpu\"\x8b\x01\n" +
+	"containers\x18\a \x03(\v2\x18.mantisops.DockerMetricsR\n" +
+	"containers\x12'\n" +
+	"\x03gpu\x18\b \x01(\v2\x15.mantisops.GpuMetricsR\x03gpu\"\x8b\x01\n" +
 	"\n" +
 	"CpuMetrics\x12#\n" +
 	"\rusage_percent\x18\x01 \x01(\x01R\fusagePercent\x12\x14\n" +
@@ -1103,11 +1103,11 @@ const file_agent_proto_rawDesc = "" +
 	"\x11HeartbeatResponse\x12\x1f\n" +
 	"\vserver_time\x18\x01 \x01(\x03R\n" +
 	"serverTime\x12'\n" +
-	"\x0freport_interval\x18\x02 \x01(\x05R\x0ereportInterval2\xdc\x01\n" +
-	"\fAgentService\x12A\n" +
-	"\bRegister\x12\x19.opsboard.RegisterRequest\x1a\x1a.opsboard.RegisterResponse\x12C\n" +
-	"\rReportMetrics\x12\x18.opsboard.MetricsPayload\x1a\x18.opsboard.ReportResponse\x12D\n" +
-	"\tHeartbeat\x12\x1a.opsboard.HeartbeatRequest\x1a\x1b.opsboard.HeartbeatResponseB\aZ\x05./genb\x06proto3"
+	"\x0freport_interval\x18\x02 \x01(\x05R\x0ereportInterval2\xe2\x01\n" +
+	"\fAgentService\x12C\n" +
+	"\bRegister\x12\x1a.mantisops.RegisterRequest\x1a\x1b.mantisops.RegisterResponse\x12E\n" +
+	"\rReportMetrics\x12\x19.mantisops.MetricsPayload\x1a\x19.mantisops.ReportResponse\x12F\n" +
+	"\tHeartbeat\x12\x1b.mantisops.HeartbeatRequest\x1a\x1c.mantisops.HeartbeatResponseB\aZ\x05./genb\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -1123,32 +1123,32 @@ func file_agent_proto_rawDescGZIP() []byte {
 
 var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_agent_proto_goTypes = []any{
-	(*RegisterRequest)(nil),   // 0: opsboard.RegisterRequest
-	(*RegisterResponse)(nil),  // 1: opsboard.RegisterResponse
-	(*MetricsPayload)(nil),    // 2: opsboard.MetricsPayload
-	(*CpuMetrics)(nil),        // 3: opsboard.CpuMetrics
-	(*MemoryMetrics)(nil),     // 4: opsboard.MemoryMetrics
-	(*DiskMetrics)(nil),       // 5: opsboard.DiskMetrics
-	(*NetworkMetrics)(nil),    // 6: opsboard.NetworkMetrics
-	(*DockerMetrics)(nil),     // 7: opsboard.DockerMetrics
-	(*GpuMetrics)(nil),        // 8: opsboard.GpuMetrics
-	(*ReportResponse)(nil),    // 9: opsboard.ReportResponse
-	(*HeartbeatRequest)(nil),  // 10: opsboard.HeartbeatRequest
-	(*HeartbeatResponse)(nil), // 11: opsboard.HeartbeatResponse
+	(*RegisterRequest)(nil),   // 0: mantisops.RegisterRequest
+	(*RegisterResponse)(nil),  // 1: mantisops.RegisterResponse
+	(*MetricsPayload)(nil),    // 2: mantisops.MetricsPayload
+	(*CpuMetrics)(nil),        // 3: mantisops.CpuMetrics
+	(*MemoryMetrics)(nil),     // 4: mantisops.MemoryMetrics
+	(*DiskMetrics)(nil),       // 5: mantisops.DiskMetrics
+	(*NetworkMetrics)(nil),    // 6: mantisops.NetworkMetrics
+	(*DockerMetrics)(nil),     // 7: mantisops.DockerMetrics
+	(*GpuMetrics)(nil),        // 8: mantisops.GpuMetrics
+	(*ReportResponse)(nil),    // 9: mantisops.ReportResponse
+	(*HeartbeatRequest)(nil),  // 10: mantisops.HeartbeatRequest
+	(*HeartbeatResponse)(nil), // 11: mantisops.HeartbeatResponse
 }
 var file_agent_proto_depIdxs = []int32{
-	3,  // 0: opsboard.MetricsPayload.cpu:type_name -> opsboard.CpuMetrics
-	4,  // 1: opsboard.MetricsPayload.memory:type_name -> opsboard.MemoryMetrics
-	5,  // 2: opsboard.MetricsPayload.disks:type_name -> opsboard.DiskMetrics
-	6,  // 3: opsboard.MetricsPayload.networks:type_name -> opsboard.NetworkMetrics
-	7,  // 4: opsboard.MetricsPayload.containers:type_name -> opsboard.DockerMetrics
-	8,  // 5: opsboard.MetricsPayload.gpu:type_name -> opsboard.GpuMetrics
-	0,  // 6: opsboard.AgentService.Register:input_type -> opsboard.RegisterRequest
-	2,  // 7: opsboard.AgentService.ReportMetrics:input_type -> opsboard.MetricsPayload
-	10, // 8: opsboard.AgentService.Heartbeat:input_type -> opsboard.HeartbeatRequest
-	1,  // 9: opsboard.AgentService.Register:output_type -> opsboard.RegisterResponse
-	9,  // 10: opsboard.AgentService.ReportMetrics:output_type -> opsboard.ReportResponse
-	11, // 11: opsboard.AgentService.Heartbeat:output_type -> opsboard.HeartbeatResponse
+	3,  // 0: mantisops.MetricsPayload.cpu:type_name -> mantisops.CpuMetrics
+	4,  // 1: mantisops.MetricsPayload.memory:type_name -> mantisops.MemoryMetrics
+	5,  // 2: mantisops.MetricsPayload.disks:type_name -> mantisops.DiskMetrics
+	6,  // 3: mantisops.MetricsPayload.networks:type_name -> mantisops.NetworkMetrics
+	7,  // 4: mantisops.MetricsPayload.containers:type_name -> mantisops.DockerMetrics
+	8,  // 5: mantisops.MetricsPayload.gpu:type_name -> mantisops.GpuMetrics
+	0,  // 6: mantisops.AgentService.Register:input_type -> mantisops.RegisterRequest
+	2,  // 7: mantisops.AgentService.ReportMetrics:input_type -> mantisops.MetricsPayload
+	10, // 8: mantisops.AgentService.Heartbeat:input_type -> mantisops.HeartbeatRequest
+	1,  // 9: mantisops.AgentService.Register:output_type -> mantisops.RegisterResponse
+	9,  // 10: mantisops.AgentService.ReportMetrics:output_type -> mantisops.ReportResponse
+	11, // 11: mantisops.AgentService.Heartbeat:output_type -> mantisops.HeartbeatResponse
 	9,  // [9:12] is the sub-list for method output_type
 	6,  // [6:9] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name

@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/store"
-	pb "opsboard/server/proto/gen"
+	"mantisops/server/internal/store"
+	pb "mantisops/server/proto/gen"
 )
 
 // MetricsProvider 提供缓存的指标快照

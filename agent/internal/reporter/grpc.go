@@ -11,10 +11,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"opsboard/agent/internal/collector"
-	"opsboard/agent/internal/config"
-	"opsboard/agent/internal/hostid"
-	pb "opsboard/agent/proto/gen"
+	"mantisops/agent/internal/collector"
+	"mantisops/agent/internal/config"
+	"mantisops/agent/internal/hostid"
+	pb "mantisops/agent/proto/gen"
 )
 
 type Reporter struct {

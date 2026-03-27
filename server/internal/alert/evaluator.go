@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"opsboard/server/internal/model"
-	pb "opsboard/server/proto/gen"
+	"mantisops/server/internal/model"
+	pb "mantisops/server/proto/gen"
 )
 
 // EvalResult represents evaluation result for one target

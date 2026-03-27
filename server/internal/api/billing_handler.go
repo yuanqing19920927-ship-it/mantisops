@@ -15,8 +15,8 @@ import (
 	rds "github.com/alibabacloud-go/rds-20140815/v3/client"
 	"github.com/alibabacloud-go/tea/tea"
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/config"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/config"
+	"mantisops/server/internal/store"
 )
 
 type BillingHandler struct {

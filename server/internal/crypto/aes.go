@@ -70,13 +70,13 @@ func GenerateKeyHex() (string, error) {
 
 // LoadKey loads encryption key: env var > config file. Returns error if neither configured.
 func LoadKey(configKeyHex string) ([]byte, error) {
-	if envKey := os.Getenv("OPSBOARD_ENCRYPTION_KEY"); envKey != "" {
+	if envKey := os.Getenv("MANTISOPS_ENCRYPTION_KEY"); envKey != "" {
 		return ParseKeyHex(envKey)
 	}
 	if configKeyHex != "" {
 		return ParseKeyHex(configKeyHex)
 	}
-	return nil, fmt.Errorf("encryption_key not configured: set OPSBOARD_ENCRYPTION_KEY env var or encryption_key in server.yaml")
+	return nil, fmt.Errorf("encryption_key not configured: set MANTISOPS_ENCRYPTION_KEY env var or encryption_key in server.yaml")
 }
 
 // EnsureKey loads key via LoadKey; if missing, auto-generates and writes back to configPath.
@@ -92,7 +92,7 @@ func EnsureKey(configKeyHex, configPath string) ([]byte, error) {
 	}
 	f, writeErr := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0644)
 	if writeErr != nil {
-		return nil, fmt.Errorf("auto-generated key %s but cannot write to %s: %w. Set OPSBOARD_ENCRYPTION_KEY env var manually", keyHex, configPath, writeErr)
+		return nil, fmt.Errorf("auto-generated key %s but cannot write to %s: %w. Set MANTISOPS_ENCRYPTION_KEY env var manually", keyHex, configPath, writeErr)
 	}
 	defer f.Close()
 	if _, writeErr = fmt.Fprintf(f, "\nencryption_key: \"%s\"\n", keyHex); writeErr != nil {

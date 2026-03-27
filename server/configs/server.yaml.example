@@ -11,7 +11,7 @@ victoria_metrics:
   url: "http://127.0.0.1:8428"
 
 sqlite:
-  path: "./data/opsboard.db"
+  path: "./data/mantisops.db"
 
 probe:
   interval: 30

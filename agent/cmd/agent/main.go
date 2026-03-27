@@ -10,12 +10,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"opsboard/agent/internal/config"
-	"opsboard/agent/internal/reporter"
+	"mantisops/agent/internal/config"
+	"mantisops/agent/internal/reporter"
 )
 
 func main() {
-	cfgPath := flag.String("config", "/etc/opsboard/agent.yaml", "config file path")
+	cfgPath := flag.String("config", "/etc/mantisops/agent.yaml", "config file path")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)

@@ -6,7 +6,7 @@ import (
 	"net"
 
 	"google.golang.org/grpc"
-	pb "opsboard/server/proto/gen"
+	pb "mantisops/server/proto/gen"
 )
 
 func StartPlain(addr string, handler *Handler, psk *PSKInterceptor) error {

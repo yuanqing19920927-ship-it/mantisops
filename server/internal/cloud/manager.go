@@ -13,8 +13,8 @@ import (
 	sts "github.com/alibabacloud-go/sts-20150401/v2/client"
 	"github.com/alibabacloud-go/tea/tea"
 
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
 )
 
 type Manager struct {

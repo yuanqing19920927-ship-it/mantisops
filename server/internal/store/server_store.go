@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"opsboard/server/internal/model"
+	"mantisops/server/internal/model"
 )
 
 type ServerStore struct {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/store"
 )
 
 type ServerHandler struct {

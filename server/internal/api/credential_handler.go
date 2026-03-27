@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/store"
 )
 
 type CredentialHandler struct {

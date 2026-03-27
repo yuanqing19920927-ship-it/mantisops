@@ -1,7 +1,7 @@
 package store
 
 import (
-	"opsboard/server/internal/model"
+	"mantisops/server/internal/model"
 	"testing"
 )
 

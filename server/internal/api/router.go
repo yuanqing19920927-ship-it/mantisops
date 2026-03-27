@@ -2,8 +2,8 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
 )
 
 // RouterDeps holds all dependencies for setting up the HTTP router.

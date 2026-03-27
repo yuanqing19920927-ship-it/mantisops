@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const persistPath = "/etc/opsboard/host_id"
+const persistPath = "/etc/mantisops/host_id"
 
 func Get(configID string) string {
 	if configID != "" {
@@ -19,7 +19,7 @@ func Get(configID string) string {
 		}
 	}
 	id := generate()
-	os.MkdirAll("/etc/opsboard", 0755)
+	os.MkdirAll("/etc/mantisops", 0755)
 	os.WriteFile(persistPath, []byte(id), 0644)
 	return id
 }

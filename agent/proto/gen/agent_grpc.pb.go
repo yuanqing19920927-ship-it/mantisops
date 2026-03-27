@@ -19,9 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Register_FullMethodName      = "/opsboard.AgentService/Register"
-	AgentService_ReportMetrics_FullMethodName = "/opsboard.AgentService/ReportMetrics"
-	AgentService_Heartbeat_FullMethodName     = "/opsboard.AgentService/Heartbeat"
+	AgentService_Register_FullMethodName      = "/mantisops.AgentService/Register"
+	AgentService_ReportMetrics_FullMethodName = "/mantisops.AgentService/ReportMetrics"
+	AgentService_Heartbeat_FullMethodName     = "/mantisops.AgentService/Heartbeat"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -176,7 +176,7 @@ func _AgentService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec f
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "opsboard.AgentService",
+	ServiceName: "mantisops.AgentService",
 	HandlerType: (*AgentServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

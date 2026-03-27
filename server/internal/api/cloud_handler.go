@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/cloud"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/cloud"
+	"mantisops/server/internal/store"
 )
 
 type CloudHandler struct {

@@ -77,7 +77,7 @@ func TestGenerateKeyHex(t *testing.T) {
 
 func TestLoadKey_EnvVar(t *testing.T) {
 	keyHex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	t.Setenv("OPSBOARD_ENCRYPTION_KEY", keyHex)
+	t.Setenv("MANTISOPS_ENCRYPTION_KEY", keyHex)
 	key, err := LoadKey("")
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -88,7 +88,7 @@ func TestLoadKey_EnvVar(t *testing.T) {
 }
 
 func TestLoadKey_NoConfig(t *testing.T) {
-	t.Setenv("OPSBOARD_ENCRYPTION_KEY", "")
+	t.Setenv("MANTISOPS_ENCRYPTION_KEY", "")
 	_, err := LoadKey("")
 	if err == nil {
 		t.Error("expected error when no key configured")
@@ -96,7 +96,7 @@ func TestLoadKey_NoConfig(t *testing.T) {
 }
 
 func TestEnsureKey_AutoGenerate(t *testing.T) {
-	t.Setenv("OPSBOARD_ENCRYPTION_KEY", "")
+	t.Setenv("MANTISOPS_ENCRYPTION_KEY", "")
 	tmpFile := filepath.Join(t.TempDir(), "test-config.yaml")
 	os.WriteFile(tmpFile, []byte("# test config\n"), 0644)
 
@@ -115,7 +115,7 @@ func TestEnsureKey_AutoGenerate(t *testing.T) {
 }
 
 func TestEnsureKey_ReadOnlyFile(t *testing.T) {
-	t.Setenv("OPSBOARD_ENCRYPTION_KEY", "")
+	t.Setenv("MANTISOPS_ENCRYPTION_KEY", "")
 	_, err := EnsureKey("", "/nonexistent/path/config.yaml")
 	if err == nil {
 		t.Error("expected error when config file is not writable")

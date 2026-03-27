@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
-	pb "opsboard/server/proto/gen"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
+	pb "mantisops/server/proto/gen"
 )
 
 type ruleState struct {
