@@ -20,6 +20,7 @@ type Server struct {
 	BootTime     int64     `json:"boot_time"`
 	LastSeen     int64     `json:"last_seen"`
 	Status       string    `json:"status"`
+	Source       string    `json:"source"` // "agent" | "managed" | "cloud"
 	DisplayName  string    `json:"display_name"`
 	SortOrder    int       `json:"sort_order"`
 	GroupID      *int      `json:"group_id"`

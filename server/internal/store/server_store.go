@@ -16,6 +16,10 @@ func NewServerStore(db *sql.DB) *ServerStore {
 	return &ServerStore{db: db}
 }
 
+func (s *ServerStore) DB() *sql.DB {
+	return s.db
+}
+
 func (s *ServerStore) Upsert(srv *model.Server) error {
 	_, err := s.db.Exec(`
 		INSERT INTO servers (host_id, hostname, ip_addresses, os, kernel, arch,
