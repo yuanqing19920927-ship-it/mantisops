@@ -2,10 +2,14 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useServerStore } from '../../stores/serverStore'
 import { ServerCard } from '../../components/ServerCard'
 import { StatusBadge } from '../../components/StatusBadge'
+import { AddServerDialog } from '../../components/AddServerDialog'
 import { Link } from 'react-router-dom'
 import { formatBytesPS } from '../../utils/format'
 import { createGroup, deleteGroup, setServerGroup } from '../../api/client'
+import { getManagedServers } from '../../api/onboarding'
 import type { ServerGroup } from '../../types'
+import type { ManagedServer } from '../../types/onboarding'
+// ManagedServer is used for the managedServers state type
 
 export default function Servers() {
   const { servers, metrics, groups, fetchDashboard } = useServerStore()
@@ -13,7 +17,25 @@ export default function Servers() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showGroupMgmt, setShowGroupMgmt] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
+  const [showAddServer, setShowAddServer] = useState(false)
+  const [managedServers, setManagedServers] = useState<ManagedServer[]>([])
+
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
+
+  const fetchManagedServers = useCallback(() => {
+    getManagedServers().then(setManagedServers).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    fetchManagedServers()
+    const timer = setInterval(fetchManagedServers, 15000)
+    return () => clearInterval(timer)
+  }, [fetchManagedServers])
+
+  // Pending-install servers (not yet online — no host_id yet)
+  const pendingManagedServers = useMemo(() => {
+    return managedServers.filter((m) => m.install_state !== 'online')
+  }, [managedServers])
 
   // Aggregated stats
   const onlineCount = servers.filter((s) => s.status === 'online').length
@@ -21,10 +43,15 @@ export default function Servers() {
     servers.length > 0
       ? servers.reduce((sum, s) => sum + (metrics[s.host_id]?.cpu?.usage_percent ?? 0), 0) / servers.length
       : 0
-  const totalTraffic = servers.reduce((sum, s) => {
+  const totalRx = servers.reduce((sum, s) => {
     const nets = metrics[s.host_id]?.networks
     if (!nets) return sum
-    return sum + nets.reduce((n, iface) => n + (iface.rx_bytes_per_sec ?? 0) + (iface.tx_bytes_per_sec ?? 0), 0)
+    return sum + nets.reduce((n, iface) => n + (iface.rx_bytes_per_sec ?? 0), 0)
+  }, 0)
+  const totalTx = servers.reduce((sum, s) => {
+    const nets = metrics[s.host_id]?.networks
+    if (!nets) return sum
+    return sum + nets.reduce((n, iface) => n + (iface.tx_bytes_per_sec ?? 0), 0)
   }, 0)
   const totalContainers = servers.reduce((sum, s) => {
     return sum + (metrics[s.host_id]?.containers?.filter((c) => c.state === 'running').length ?? 0)
@@ -93,91 +120,95 @@ export default function Servers() {
     fetchDashboard()
   }
 
-  const GroupSelector = ({ hostId, currentGroupId }: { hostId: string; currentGroupId?: number | null }) => (
-    <select
-      value={currentGroupId ?? ''}
-      onChange={(e) => {
-        const val = e.target.value
-        handleSetGroup(hostId, val ? Number(val) : null)
-      }}
-      onClick={(e) => e.preventDefault()}
-      className="text-[10px] bg-surface-container border border-outline-variant/20 text-on-surface-variant rounded px-1.5 py-0.5 cursor-pointer"
-    >
-      <option value="">未分组</option>
-      {groups.map(g => (
-        <option key={g.id} value={g.id}>{g.name}</option>
-      ))}
-    </select>
-  )
+  const avgCpuColor =
+    avgCpu >= 80 ? 'text-[#f06548]' : avgCpu >= 60 ? 'text-[#f7b84b]' : 'text-[#495057]'
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5 pb-16">
+
+      {/* Add Server Dialog */}
+      <AddServerDialog
+        open={showAddServer}
+        onClose={() => setShowAddServer(false)}
+        onSuccess={() => { fetchDashboard(); fetchManagedServers() }}
+      />
+
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <h1 className="font-headline text-2xl md:text-4xl font-bold tracking-tight text-on-surface">
-            集群监控中心
-          </h1>
-          <p className="mt-2 text-on-surface-variant">
-            共 {servers.length} 台服务器，{onlineCount} 台在线 · 实时监控
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-[18px] font-semibold text-[#495057] mb-0">服务器列表</h4>
+        <div className="flex items-center gap-2">
+          {/* Add Server button */}
+          <button
+            onClick={() => setShowAddServer(true)}
+            className="flex items-center gap-1 px-3 py-1.5 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
+            <span className="hidden sm:inline">添加服务器</span>
+          </button>
+
+          {/* Group management toggle */}
           <button
             onClick={() => setShowGroupMgmt(!showGroupMgmt)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-on-surface-variant hover:text-on-surface bg-surface-container-low hover:bg-surface-container rounded-lg transition-colors"
+            className={`flex items-center gap-1 px-3 py-1.5 text-[13px] border rounded transition-colors ${
+              showGroupMgmt
+                ? 'border-[#2ca07a] text-[#2ca07a] bg-[rgba(44,160,122,0.05)]'
+                : 'border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a]'
+            }`}
           >
-            <span className="material-symbols-outlined text-sm">folder_managed</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>folder_managed</span>
             <span className="hidden sm:inline">管理分组</span>
           </button>
-          <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
+
+          {/* Card / Table toggle (btn-group style) */}
+          <div className="flex">
             <button
               onClick={() => setView('card')}
-              className={
+              className={`flex items-center px-3 py-1.5 border text-[13px] rounded-l transition-colors ${
                 view === 'card'
-                  ? 'flex items-center gap-2 px-4 py-1.5 bg-primary-container text-on-primary-container rounded-md shadow-lg'
-                  : 'flex items-center gap-2 px-4 py-1.5 text-on-surface-variant hover:text-on-surface'
-              }
+                  ? 'bg-[#2ca07a] border-[#2ca07a] text-white'
+                  : 'bg-white border-[#2ca07a] text-[#2ca07a] hover:bg-[rgba(44,160,122,0.05)]'
+              }`}
+              title="卡片视图"
             >
-              <span className="material-symbols-outlined text-sm">grid_view</span>
-              <span className="text-sm font-medium hidden sm:inline">卡片</span>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>grid_view</span>
             </button>
             <button
               onClick={() => setView('table')}
-              className={
+              className={`flex items-center px-3 py-1.5 border-t border-b border-r text-[13px] rounded-r transition-colors ${
                 view === 'table'
-                  ? 'flex items-center gap-2 px-4 py-1.5 bg-primary-container text-on-primary-container rounded-md shadow-lg'
-                  : 'flex items-center gap-2 px-4 py-1.5 text-on-surface-variant hover:text-on-surface'
-              }
+                  ? 'bg-[#2ca07a] border-[#2ca07a] text-white'
+                  : 'bg-white border-[#2ca07a] text-[#2ca07a] hover:bg-[rgba(44,160,122,0.05)]'
+              }`}
+              title="表格视图"
             >
-              <span className="material-symbols-outlined text-sm">table_rows</span>
-              <span className="text-sm font-medium hidden sm:inline">表格</span>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>view_list</span>
             </button>
           </div>
+
         </div>
       </div>
 
       {/* Group Management Panel */}
       {showGroupMgmt && (
-        <div className="glass-card rounded-xl p-5">
-          <h3 className="text-sm font-headline font-bold text-on-surface mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-lg">folder_managed</span>
+        <div className="bg-white rounded-[10px] border border-[#e9ecef] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-4">
+          <h6 className="text-[13px] font-semibold text-[#495057] mb-3 flex items-center gap-2">
+            <span className="material-symbols-outlined text-[#2ca07a]" style={{ fontSize: '16px' }}>folder_managed</span>
             分组管理
-          </h3>
-          <div className="flex flex-wrap gap-2 mb-4">
+          </h6>
+          <div className="flex flex-wrap gap-2 mb-3">
             {groups.map(g => (
-              <div key={g.id} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container rounded-lg text-sm">
-                <span className="text-on-surface">{g.name}</span>
+              <div key={g.id} className="flex items-center gap-1.5 px-3 py-1 bg-[#f8f9fa] border border-[#e9ecef] rounded text-[12px] text-[#495057]">
+                <span>{g.name}</span>
                 <button
                   onClick={() => handleDeleteGroup(g.id)}
-                  className="text-on-surface-variant hover:text-error transition-colors"
+                  className="text-[#878a99] hover:text-[#f06548] transition-colors leading-none"
                 >
-                  <span className="material-symbols-outlined text-sm">close</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>close</span>
                 </button>
               </div>
             ))}
             {groups.length === 0 && (
-              <span className="text-xs text-on-surface-variant">暂无分组</span>
+              <span className="text-[12px] text-[#878a99]">暂无分组</span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -187,11 +218,11 @@ export default function Servers() {
               onChange={(e) => setNewGroupName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
               placeholder="新分组名称"
-              className="text-sm px-3 py-1.5 bg-surface-container border border-outline-variant/20 rounded-lg text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary"
+              className="text-[12px] px-3 py-1.5 bg-[#f8f9fa] border border-[#e9ecef] rounded text-[#495057] placeholder:text-[#ced4da] focus:outline-none focus:border-[#2ca07a]"
             />
             <button
               onClick={handleCreateGroup}
-              className="px-3 py-1.5 text-sm bg-primary text-on-primary rounded-lg hover:bg-primary/80 transition-colors"
+              className="px-3 py-1.5 text-[12px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors"
             >
               创建
             </button>
@@ -199,80 +230,106 @@ export default function Servers() {
         </div>
       )}
 
-      {/* Stats Bar */}
-      {servers.length > 0 && (
-        <div className="bg-surface-container rounded-xl p-5 flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-lg">dns</span>
-            <span className="text-xs text-on-surface-variant">服务器</span>
-            <span className="text-sm font-bold text-on-surface">{servers.length}</span>
-            <span className="text-[10px] text-tertiary ml-1">{onlineCount} 在线</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-lg">speed</span>
-            <span className="text-xs text-on-surface-variant">平均 CPU</span>
-            <span className={`text-sm font-bold font-mono ${avgCpu >= 80 ? 'text-error' : avgCpu >= 60 ? 'text-warning' : 'text-on-surface'}`}>
-              {avgCpu.toFixed(1)}%
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-lg">swap_vert</span>
-            <span className="text-xs text-on-surface-variant">总流量</span>
-            <span className="text-sm font-bold font-mono text-on-surface">{formatBytesPS(totalTraffic)}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-lg">deployed_code</span>
-            <span className="text-xs text-on-surface-variant">运行容器</span>
-            <span className="text-sm font-bold text-on-surface">{totalContainers}</span>
+      {/* Pending/Installing Managed Servers */}
+      {pendingManagedServers.length > 0 && (
+        <div className="bg-white rounded-[10px] border border-[#e9ecef] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-4">
+          <h6 className="text-[13px] font-semibold text-[#495057] mb-3 flex items-center gap-2">
+            <span className="material-symbols-outlined text-[#f7b84b]" style={{ fontSize: '16px' }}>pending</span>
+            正在安装的服务器
+          </h6>
+          <div className="space-y-2">
+            {pendingManagedServers.map((m) => {
+              const isFailed = m.install_state === 'failed'
+              const isOngoing = !isFailed
+              return (
+                <div key={m.id} className="flex items-center gap-3 px-3 py-2 bg-[#f8f9fa] rounded-lg border border-[#e9ecef]">
+                  <div className="flex-shrink-0">
+                    {isFailed ? (
+                      <span className="w-2 h-2 rounded-full bg-[#f06548] block" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-[#f7b84b] block animate-pulse" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[13px] font-medium text-[#495057]">{m.host}</span>
+                    <span className="text-[11px] text-[#878a99] ml-2">{m.ssh_user}@{m.host}:{m.ssh_port}</span>
+                  </div>
+                  <span className={`text-[11px] py-0.5 px-2 rounded font-medium ${
+                    isFailed
+                      ? 'bg-[#f06548]/12 text-[#f06548]'
+                      : 'bg-[#f7b84b]/12 text-[#f7b84b]'
+                  }`}
+                    style={{ backgroundColor: isFailed ? 'rgba(240,101,72,0.08)' : 'rgba(247,184,75,0.08)' }}
+                  >
+                    {m.install_state === 'pending' ? '等待部署'
+                      : m.install_state === 'testing' ? '测试连接'
+                      : m.install_state === 'connected' ? '已连接'
+                      : m.install_state === 'uploading' ? '上传中'
+                      : m.install_state === 'installing' ? '安装中'
+                      : m.install_state === 'waiting' ? '等待上线'
+                      : m.install_state === 'failed' ? '安装失败'
+                      : m.install_state}
+                  </span>
+                  {isFailed && m.install_error && (
+                    <span className="text-[11px] text-[#f06548] truncate max-w-[200px]" title={m.install_error}>
+                      {m.install_error}
+                    </span>
+                  )}
+                  {isOngoing && (
+                    <span className="w-3.5 h-3.5 border border-[#f7b84b]/30 border-t-[#f7b84b] rounded-full animate-spin flex-shrink-0" />
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
 
       {/* Empty State */}
       {servers.length === 0 && (
-        <div className="glass-card rounded-2xl p-16 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-surface-container-high flex items-center justify-center mx-auto mb-4">
-            <span className="material-symbols-outlined text-3xl text-on-surface-variant">dns</span>
+        <div className="bg-white rounded-[10px] border border-[#e9ecef] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-16 text-center">
+          <div className="w-14 h-14 rounded-full bg-[rgba(44,160,122,0.1)] flex items-center justify-center mx-auto mb-4">
+            <span className="material-symbols-outlined text-[#2ca07a] text-3xl">dns</span>
           </div>
-          <p className="text-on-surface-variant font-body text-lg mb-2">暂无服务器数据</p>
-          <p className="text-on-surface-variant/60 text-sm">请先部署 Agent 到目标服务器，数据将自动上报</p>
+          <p className="text-[#495057] text-[15px] mb-1">暂无服务器数据</p>
+          <p className="text-[#878a99] text-[12px]">请先部署 Agent 到目标服务器，数据将自动上报</p>
         </div>
       )}
 
       {/* Card View */}
       {servers.length > 0 && view === 'card' && (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {grouped.map(({ group, servers: groupServers }) => {
             const key = group ? `g-${group.id}` : 'ungrouped'
             const isCollapsed = collapsed.has(key)
             const onlineInGroup = groupServers.filter(s => s.status === 'online').length
             return (
-              <div key={key} className="space-y-4">
+              <div key={key}>
+                {/* Group header row */}
                 <button
                   onClick={() => toggleCollapse(key)}
-                  className="flex items-center gap-2 w-full text-left"
+                  className="flex items-center gap-2 w-full text-left mb-3"
                 >
-                  <span className={`material-symbols-outlined text-sm text-on-surface-variant transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>
+                  <span className={`material-symbols-outlined text-[#878a99] transition-transform ${isCollapsed ? '' : 'rotate-90'}`} style={{ fontSize: '16px' }}>
                     chevron_right
                   </span>
-                  <span className="text-sm font-headline font-bold text-on-surface">
+                  <span className="text-[13px] font-semibold text-[#495057]">
                     {group?.name ?? '未分组'}
                   </span>
-                  <span className="text-xs text-on-surface-variant">
+                  <span className="text-[12px] text-[#878a99]">
                     ({onlineInGroup}/{groupServers.length} 在线)
                   </span>
                 </button>
                 {!isCollapsed && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {groupServers.map((s) => (
-                      <div key={s.host_id} className="relative">
-                        <ServerCard server={s} metrics={metrics[s.host_id]} />
-                        {groups.length > 0 && (
-                          <div className="absolute top-2 right-16" onClick={(e) => e.stopPropagation()}>
-                            <GroupSelector hostId={s.host_id} currentGroupId={s.group_id} />
-                          </div>
-                        )}
-                      </div>
+                      <ServerCard
+                        key={s.host_id}
+                        server={s}
+                        metrics={metrics[s.host_id]}
+                        groups={groups.length > 0 ? groups : undefined}
+                        onGroupChange={groups.length > 0 ? handleSetGroup : undefined}
+                      />
                     ))}
                   </div>
                 )}
@@ -284,21 +341,21 @@ export default function Servers() {
 
       {/* Table View */}
       {servers.length > 0 && view === 'table' && (
-        <div className="bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/10">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-[10px] border border-[#e9ecef] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
+          <table className="w-full text-[13px]">
             <thead>
-              <tr className="bg-surface-container/50">
-                <th className="text-left p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">状态</th>
-                <th className="text-left p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">主机名</th>
-                <th className="text-left p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold hidden md:table-cell">IP 地址</th>
-                <th className="text-left p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold hidden md:table-cell">系统</th>
-                <th className="text-center p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">CPU</th>
-                <th className="text-center p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">内存</th>
-                <th className="text-center p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold hidden md:table-cell">磁盘</th>
-                <th className="text-right p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">流量</th>
-                <th className="text-center p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold hidden md:table-cell">容器</th>
+              <tr className="bg-[#f8f9fa] border-b border-[#e9ecef]">
+                <th className="text-left px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide">状态</th>
+                <th className="text-left px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide">主机名</th>
+                <th className="text-left px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide hidden md:table-cell">IP 地址</th>
+                <th className="text-left px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide hidden md:table-cell">系统</th>
+                <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide">CPU</th>
+                <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide">内存</th>
+                <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide hidden md:table-cell">磁盘</th>
+                <th className="text-right px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide">流量</th>
+                <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide hidden md:table-cell">容器</th>
                 {groups.length > 0 && (
-                  <th className="text-center p-4 text-[10px] text-on-surface-variant uppercase tracking-wider font-bold hidden md:table-cell">分组</th>
+                  <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide hidden md:table-cell">分组</th>
                 )}
               </tr>
             </thead>
@@ -309,19 +366,19 @@ export default function Servers() {
                 const onlineInGroup = groupServers.filter(s => s.status === 'online').length
                 const colSpan = groups.length > 0 ? 10 : 9
                 return [
-                  <tr key={`header-${key}`} className="bg-surface-container/30">
+                  <tr key={`header-${key}`} className="bg-[#f3f3f9] border-b border-[#e9ecef]">
                     <td colSpan={colSpan} className="p-0">
                       <button
                         onClick={() => toggleCollapse(key)}
-                        className="flex items-center gap-2 w-full text-left px-4 py-2.5"
+                        className="flex items-center gap-2 w-full text-left px-4 py-2"
                       >
-                        <span className={`material-symbols-outlined text-sm text-on-surface-variant transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>
+                        <span className={`material-symbols-outlined text-[#878a99] transition-transform ${isCollapsed ? '' : 'rotate-90'}`} style={{ fontSize: '14px' }}>
                           chevron_right
                         </span>
-                        <span className="text-xs font-headline font-bold text-on-surface">
+                        <span className="text-[12px] font-semibold text-[#495057]">
                           {group?.name ?? '未分组'}
                         </span>
-                        <span className="text-[10px] text-on-surface-variant">
+                        <span className="text-[11px] text-[#878a99]">
                           ({onlineInGroup}/{groupServers.length} 在线)
                         </span>
                       </button>
@@ -335,67 +392,79 @@ export default function Servers() {
                     const rxPS = s.netRx
                     const txPS = s.netTx
                     const containers = m?.containers?.filter((c) => c.state === 'running').length ?? 0
+                    const hasMetrics = !!m
 
                     let ip = ''
                     try { ip = JSON.parse(s.ip_addresses || '[]')[0] || '' } catch { /* empty */ }
 
-                    const cpuColor = cpuPct >= 80 ? 'text-error' : cpuPct >= 60 ? 'text-warning' : 'text-tertiary'
-                    const memColor = memPct >= 80 ? 'text-error' : memPct >= 60 ? 'text-warning' : 'text-tertiary'
-                    const diskColor = diskPct >= 80 ? 'text-error' : diskPct >= 60 ? 'text-warning' : 'text-on-surface'
+                    const pctColor = (v: number) =>
+                      v >= 80 ? 'text-[#f06548] font-semibold' : v >= 60 ? 'text-[#f7b84b] font-semibold' : 'text-[#495057]'
 
                     return (
                       <tr
                         key={s.host_id}
-                        className="even:bg-surface-container/30 hover:bg-surface-container-high transition-colors"
+                        className="border-b border-[#e9ecef] hover:bg-[#f8f9fa] transition-colors"
                       >
-                        <td className="p-4">
+                        <td className="px-4 py-3">
                           <StatusBadge status={s.status} />
                         </td>
-                        <td className="p-4">
+                        <td className="px-4 py-3">
                           <Link
                             to={`/servers/${s.host_id}`}
-                            className="text-primary hover:text-on-surface font-medium transition-colors"
+                            className="text-[#2ca07a] hover:text-[#1f7d5e] font-medium transition-colors"
                           >
                             {s.display_name || s.hostname}
                           </Link>
                         </td>
-                        <td className="p-4 text-xs font-mono text-on-surface-variant hidden md:table-cell">{ip}</td>
-                        <td className="p-4 text-xs text-on-surface-variant hidden md:table-cell">
+                        <td className="px-4 py-3 font-mono text-[12px] text-[#878a99] hidden md:table-cell">{ip}</td>
+                        <td className="px-4 py-3 text-[12px] text-[#878a99] hidden md:table-cell">
                           {s.os?.split(' ').slice(0, 3).join(' ')}
                         </td>
-                        <td className={`text-center p-4 font-mono text-xs font-bold ${cpuColor}`}>
-                          {metrics[s.host_id] ? cpuPct.toFixed(1) + '%' : '-'}
+                        <td className={`text-center px-4 py-3 font-mono text-[12px] ${pctColor(cpuPct)}`}>
+                          {hasMetrics ? cpuPct.toFixed(1) + '%' : '-'}
                         </td>
-                        <td className={`text-center p-4 font-mono text-xs font-bold ${memColor}`}>
-                          {metrics[s.host_id] ? memPct.toFixed(1) + '%' : '-'}
+                        <td className={`text-center px-4 py-3 font-mono text-[12px] ${pctColor(memPct)}`}>
+                          {hasMetrics ? memPct.toFixed(1) + '%' : '-'}
                         </td>
-                        <td className={`text-center p-4 font-mono text-xs hidden md:table-cell ${diskColor}`}>
-                          {metrics[s.host_id] ? diskPct.toFixed(1) + '%' : '-'}
+                        <td className={`text-center px-4 py-3 font-mono text-[12px] hidden md:table-cell ${pctColor(diskPct)}`}>
+                          {hasMetrics ? diskPct.toFixed(1) + '%' : '-'}
                         </td>
-                        <td className="text-right p-4 text-xs font-mono text-on-surface-variant">
-                          <span className="flex items-center justify-end gap-2">
+                        <td className="text-right px-4 py-3 text-[12px] font-mono text-[#878a99]">
+                          <span className="flex items-center justify-end gap-3">
                             <span className="flex items-center gap-0.5">
-                              <span className="material-symbols-outlined text-xs text-primary">arrow_upward</span>
-                              {formatBytesPS(txPS)}
+                              <span className="material-symbols-outlined" style={{ fontSize: '13px', color: '#f06548' }}>arrow_downward</span>
+                              {hasMetrics ? formatBytesPS(rxPS) : '-'}
                             </span>
                             <span className="flex items-center gap-0.5">
-                              <span className="material-symbols-outlined text-xs text-primary">arrow_downward</span>
-                              {formatBytesPS(rxPS)}
+                              <span className="material-symbols-outlined" style={{ fontSize: '13px', color: '#0ab39c' }}>arrow_upward</span>
+                              {hasMetrics ? formatBytesPS(txPS) : '-'}
                             </span>
                           </span>
                         </td>
-                        <td className="text-center p-4 hidden md:table-cell">
+                        <td className="text-center px-4 py-3 hidden md:table-cell">
                           {containers > 0 ? (
-                            <span className="text-[10px] py-0.5 px-2 bg-primary/20 text-primary rounded font-bold">
+                            <span className="text-[11px] py-0.5 px-2 bg-[rgba(44,160,122,0.1)] text-[#2ca07a] rounded font-semibold">
                               {containers}
                             </span>
                           ) : (
-                            <span className="text-on-surface-variant text-xs">-</span>
+                            <span className="text-[#878a99] text-[12px]">-</span>
                           )}
                         </td>
                         {groups.length > 0 && (
-                          <td className="text-center p-4 hidden md:table-cell">
-                            <GroupSelector hostId={s.host_id} currentGroupId={s.group_id} />
+                          <td className="text-center px-4 py-3 hidden md:table-cell">
+                            <select
+                              value={s.group_id ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                handleSetGroup(s.host_id, val ? Number(val) : null)
+                              }}
+                              className="text-[11px] bg-[#f8f9fa] border border-[#e9ecef] text-[#878a99] rounded px-1.5 py-0.5 cursor-pointer focus:outline-none focus:border-[#2ca07a]"
+                            >
+                              <option value="">未分组</option>
+                              {groups.map(g => (
+                                <option key={g.id} value={g.id}>{g.name}</option>
+                              ))}
+                            </select>
                           </td>
                         )}
                       </tr>
@@ -405,6 +474,36 @@ export default function Servers() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Bottom Stats Bar — fixed bottom */}
+      {servers.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-[#e9ecef] z-50 px-6 py-2.5 flex items-center gap-6 md:gap-8"
+          style={{ left: 'var(--sidebar-width, 0px)' }}
+        >
+          <div>
+            <span className="text-[12px] text-[#878a99] mr-2">服务器</span>
+            <span className="text-[13px] font-bold text-[#495057]">{onlineCount} / {servers.length}</span>
+          </div>
+          <div>
+            <span className="text-[12px] text-[#878a99] mr-2">平均 CPU</span>
+            <span className={`text-[13px] font-bold ${avgCpuColor}`}>{avgCpu.toFixed(1)}%</span>
+          </div>
+          <div>
+            <span className="text-[12px] text-[#878a99] mr-2">总流量</span>
+            <span className="text-[13px] font-bold text-[#495057]">
+              <span className="material-symbols-outlined" style={{ fontSize: '12px', color: '#f06548', verticalAlign: 'middle' }}>arrow_downward</span>
+              {' '}{formatBytesPS(totalRx)}
+              {'  '}
+              <span className="material-symbols-outlined ml-2" style={{ fontSize: '12px', color: '#0ab39c', verticalAlign: 'middle' }}>arrow_upward</span>
+              {' '}{formatBytesPS(totalTx)}
+            </span>
+          </div>
+          <div className="hidden md:block">
+            <span className="text-[12px] text-[#878a99] mr-2">运行容器</span>
+            <span className="text-[13px] font-bold text-[#495057]">{totalContainers}</span>
+          </div>
         </div>
       )}
 

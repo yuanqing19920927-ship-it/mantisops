@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useServerStore } from '../stores/serverStore'
 import { useAlertStore } from '../stores/alertStore'
+import type { DeployProgress, CloudSyncProgress } from '../types/onboarding'
 
 let globalWs: WebSocket | null = null
 let refCount = 0
@@ -49,6 +50,14 @@ export function useWebSocket() {
           }
           if (msg.type === 'alert_acked' && msg.data) {
             silenceAlertRef.current(msg.data.id, msg.data.acked_by)
+          }
+          if (msg.type === 'deploy_progress') {
+            const detail: DeployProgress = msg
+            window.dispatchEvent(new CustomEvent<DeployProgress>('deploy_progress', { detail }))
+          }
+          if (msg.type === 'cloud_sync_progress') {
+            const detail: CloudSyncProgress = msg
+            window.dispatchEvent(new CustomEvent<CloudSyncProgress>('cloud_sync_progress', { detail }))
           }
         } catch {
           // ignore
