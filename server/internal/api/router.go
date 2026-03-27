@@ -21,7 +21,8 @@ type RouterDeps struct {
 	AlertHandler      *AlertHandler
 	GroupHandler      *GroupHandler
 	CredentialHandler *CredentialHandler
-	CloudHandler      *CloudHandler
+	CloudHandler         *CloudHandler
+	ManagedServerHandler *ManagedServerHandler
 }
 
 func SetupRouter(deps RouterDeps) *gin.Engine {
@@ -104,6 +105,17 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 			v1.POST("/credentials", deps.CredentialHandler.Create)
 			v1.PUT("/credentials/:id", deps.CredentialHandler.Update)
 			v1.DELETE("/credentials/:id", deps.CredentialHandler.Delete)
+		}
+
+		// Managed servers
+		if deps.ManagedServerHandler != nil {
+			v1.GET("/managed-servers", deps.ManagedServerHandler.List)
+			v1.POST("/managed-servers", deps.ManagedServerHandler.Create)
+			v1.POST("/managed-servers/test-connection", deps.ManagedServerHandler.TestConnection)
+			v1.POST("/managed-servers/:id/deploy", deps.ManagedServerHandler.Deploy)
+			v1.POST("/managed-servers/:id/retry", deps.ManagedServerHandler.Retry)
+			v1.DELETE("/managed-servers/:id", deps.ManagedServerHandler.Delete)
+			v1.POST("/managed-servers/:id/uninstall", deps.ManagedServerHandler.Uninstall)
 		}
 
 		// Cloud accounts & instances
