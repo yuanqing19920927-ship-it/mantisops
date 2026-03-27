@@ -205,18 +205,19 @@ func (ac *AliyunCollector) loadInstances() ([]ECSTarget, []RDSTarget) {
 }
 
 // MigrateFromConfig 将配置文件中的实例信息一次性导入数据库
-func (ac *AliyunCollector) MigrateFromConfig() {
+// MigrateFromConfig imports existing config into DB. Returns the new account ID (0 if skipped).
+func (ac *AliyunCollector) MigrateFromConfig() int {
 	if ac.cloudStore == nil || ac.credStore == nil {
-		return
+		return 0
 	}
 	// 如果数据库已有云账号数据，跳过迁移
 	accounts, _ := ac.cloudStore.ListAccounts()
 	if len(accounts) > 0 {
-		return
+		return 0
 	}
 	// 配置文件中没有数据则无需迁移
 	if !ac.cfg.Enabled || (len(ac.cfg.Instances) == 0 && len(ac.cfg.RDS) == 0) {
-		return
+		return 0
 	}
 
 	log.Println("[aliyun] migrating config to database...")
@@ -237,13 +238,13 @@ func (ac *AliyunCollector) MigrateFromConfig() {
 	})
 	if err != nil {
 		log.Printf("[aliyun] migration: create credential failed: %v", err)
-		return
+		return 0
 	}
 
 	accountID, err := ac.cloudStore.CreateAccount("从配置文件导入", "aliyun", credID, nil, false)
 	if err != nil {
 		log.Printf("[aliyun] migration: create account failed: %v", err)
-		return
+		return 0
 	}
 
 	// 导入 ECS 实例
@@ -290,7 +291,8 @@ func (ac *AliyunCollector) MigrateFromConfig() {
 
 	ac.cloudStore.UpdateAccountSyncState(accountID, "synced", "")
 
-	log.Printf("[aliyun] migrated: %d ECS + %d RDS instances from config", len(ac.cfg.Instances), len(ac.cfg.RDS))
+	log.Printf("[aliyun] migrated: %d ECS + %d RDS instances from config, triggering sync for metadata...", len(ac.cfg.Instances), len(ac.cfg.RDS))
+	return accountID
 }
 
 func (ac *AliyunCollector) loop() {

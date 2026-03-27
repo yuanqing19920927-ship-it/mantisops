@@ -99,7 +99,10 @@ func main() {
 		if err != nil {
 			log.Printf("aliyun collector init failed: %v", err)
 		} else {
-			ac.MigrateFromConfig()
+			if migratedID := ac.MigrateFromConfig(); migratedID > 0 {
+				// Sync to fetch instance metadata (names, engine, spec, endpoint)
+				cloudManager.Sync(migratedID)
+			}
 			ac.Start()
 			defer ac.Stop()
 			metricsProvider = ac
