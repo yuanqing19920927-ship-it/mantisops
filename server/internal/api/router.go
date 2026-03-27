@@ -18,12 +18,10 @@ type RouterDeps struct {
 	AuthHandler     *AuthHandler
 	DatabaseHandler *DatabaseHandler
 	BillingHandler  *BillingHandler
-	AlertHandler    *AlertHandler
-	GroupHandler    *GroupHandler
-	// Will be extended later with:
-	// CredentialHandler    *CredentialHandler
-	// ManagedServerHandler *ManagedServerHandler
-	// CloudHandler         *CloudHandler
+	AlertHandler      *AlertHandler
+	GroupHandler      *GroupHandler
+	CredentialHandler *CredentialHandler
+	CloudHandler      *CloudHandler
 }
 
 func SetupRouter(deps RouterDeps) *gin.Engine {
@@ -99,6 +97,29 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		v1.PUT("/alerts/channels/:id", deps.AlertHandler.UpdateChannel)
 		v1.DELETE("/alerts/channels/:id", deps.AlertHandler.DeleteChannel)
 		v1.POST("/alerts/channels/:id/test", deps.AlertHandler.TestChannel)
+
+		// Credentials
+		if deps.CredentialHandler != nil {
+			v1.GET("/credentials", deps.CredentialHandler.List)
+			v1.POST("/credentials", deps.CredentialHandler.Create)
+			v1.PUT("/credentials/:id", deps.CredentialHandler.Update)
+			v1.DELETE("/credentials/:id", deps.CredentialHandler.Delete)
+		}
+
+		// Cloud accounts & instances
+		if deps.CloudHandler != nil {
+			v1.GET("/cloud-accounts", deps.CloudHandler.ListAccounts)
+			v1.POST("/cloud-accounts", deps.CloudHandler.CreateAccount)
+			v1.POST("/cloud-accounts/verify", deps.CloudHandler.Verify)
+			v1.PUT("/cloud-accounts/:id", deps.CloudHandler.UpdateAccount)
+			v1.DELETE("/cloud-accounts/:id", deps.CloudHandler.DeleteAccount)
+			v1.POST("/cloud-accounts/:id/sync", deps.CloudHandler.SyncAccount)
+			v1.GET("/cloud-accounts/:id/instances", deps.CloudHandler.ListInstances)
+			v1.POST("/cloud-instances/confirm", deps.CloudHandler.ConfirmInstances)
+			v1.PUT("/cloud-instances/:id", deps.CloudHandler.UpdateInstance)
+			v1.POST("/cloud-instances", deps.CloudHandler.AddInstance)
+			v1.DELETE("/cloud-instances/:id", deps.CloudHandler.DeleteInstance)
+		}
 	}
 
 	r.GET("/ws", func(c *gin.Context) {
