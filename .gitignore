@@ -35,3 +35,4 @@ html/
 docs/deploy-*.md
 docs/superpowers/
 server/server
+logs/

@@ -193,10 +193,26 @@ func (d *Deployer) runDeploy(managedID int) {
 	d.managedStore.UpdateDetectedArch(managedID, arch)
 	d.broadcast(managedID, store.InstallStateConnected, fmt.Sprintf("架构: %s", arch))
 
+	// Detect sudo availability
+	hasSudo := false
+	if _, _, err := sshClient.Execute("sudo true"); err == nil {
+		hasSudo = true
+	}
+
+	if hasSudo {
+		d.broadcast(managedID, store.InstallStateConnected, "检测到 sudo，使用系统级安装")
+	} else {
+		d.broadcast(managedID, store.InstallStateConnected, "无 sudo 权限，使用用户级安装")
+	}
+
+	// Stop old agent if running
 	stdout, _, _ := sshClient.Execute("pgrep -x mantisops-agent")
 	if strings.TrimSpace(stdout) != "" {
-		// Agent already running, stop it first
-		sshClient.Execute("sudo systemctl stop mantisops-agent 2>/dev/null || sudo killall mantisops-agent 2>/dev/null")
+		if hasSudo {
+			sshClient.Execute("sudo systemctl stop mantisops-agent 2>/dev/null || sudo killall mantisops-agent 2>/dev/null")
+		} else {
+			sshClient.Execute("pkill -x mantisops-agent 2>/dev/null")
+		}
 		d.broadcast(managedID, store.InstallStateConnected, "已停止旧 Agent")
 	}
 
@@ -227,7 +243,9 @@ func (d *Deployer) runDeploy(managedID int) {
 		agentID = generateAgentID(managed.Host)
 	}
 
-	agentYAML := fmt.Sprintf(`server:
+	if hasSudo {
+		// ── System-level install (sudo) ──
+		agentYAML := fmt.Sprintf(`server:
   address: "%s"
   token: "%s"
   tls:
@@ -242,25 +260,25 @@ agent:
   id: "%s"
 `, d.grpcAddr, d.pskToken, opts.CollectInterval, opts.Docker, opts.GPU, agentID)
 
-	sshClient.Execute("sudo mkdir -p /etc/mantisops")
-	if err := sshClient.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644); err != nil {
-		d.fail(managedID, "写入配置失败: "+err.Error())
-		return
-	}
-
-	cmds := []string{
-		"sudo mv /tmp/agent.yaml /etc/mantisops/agent.yaml",
-		"sudo mv /tmp/mantisops-agent /usr/local/bin/mantisops-agent",
-		"sudo chmod +x /usr/local/bin/mantisops-agent",
-	}
-	for _, cmd := range cmds {
-		if _, stderr, err := sshClient.Execute(cmd); err != nil {
-			d.fail(managedID, fmt.Sprintf("执行命令失败 [%s]: %s %v", cmd, stderr, err))
+		sshClient.Execute("sudo mkdir -p /etc/mantisops")
+		if err := sshClient.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644); err != nil {
+			d.fail(managedID, "写入配置失败: "+err.Error())
 			return
 		}
-	}
 
-	serviceUnit := `[Unit]
+		cmds := []string{
+			"sudo mv /tmp/agent.yaml /etc/mantisops/agent.yaml",
+			"sudo mv /tmp/mantisops-agent /usr/local/bin/mantisops-agent",
+			"sudo chmod +x /usr/local/bin/mantisops-agent",
+		}
+		for _, cmd := range cmds {
+			if _, stderr, err := sshClient.Execute(cmd); err != nil {
+				d.fail(managedID, fmt.Sprintf("执行命令失败 [%s]: %s %v", cmd, stderr, err))
+				return
+			}
+		}
+
+		serviceUnit := `[Unit]
 Description=MantisOps Agent
 After=network-online.target
 Wants=network-online.target
@@ -274,21 +292,116 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 `
-	if err := sshClient.WriteFile("/tmp/mantisops-agent.service", []byte(serviceUnit), 0644); err != nil {
-		d.fail(managedID, "写入 systemd 服务文件失败: "+err.Error())
-		return
-	}
-
-	startCmds := []string{
-		"sudo mv /tmp/mantisops-agent.service /etc/systemd/system/mantisops-agent.service",
-		"sudo systemctl daemon-reload",
-		"sudo systemctl enable mantisops-agent",
-		"sudo systemctl start mantisops-agent",
-	}
-	for _, cmd := range startCmds {
-		if _, stderr, err := sshClient.Execute(cmd); err != nil {
-			d.fail(managedID, fmt.Sprintf("启动服务失败 [%s]: %s %v", cmd, stderr, err))
+		if err := sshClient.WriteFile("/tmp/mantisops-agent.service", []byte(serviceUnit), 0644); err != nil {
+			d.fail(managedID, "写入 systemd 服务文件失败: "+err.Error())
 			return
+		}
+
+		startCmds := []string{
+			"sudo mv /tmp/mantisops-agent.service /etc/systemd/system/mantisops-agent.service",
+			"sudo systemctl daemon-reload",
+			"sudo systemctl enable mantisops-agent",
+			"sudo systemctl start mantisops-agent",
+		}
+		for _, cmd := range startCmds {
+			if _, stderr, err := sshClient.Execute(cmd); err != nil {
+				d.fail(managedID, fmt.Sprintf("启动服务失败 [%s]: %s %v", cmd, stderr, err))
+				return
+			}
+		}
+	} else {
+		// ── User-level install (no sudo) ──
+		agentYAML := fmt.Sprintf(`server:
+  address: "%s"
+  token: "%s"
+  tls:
+    enabled: false
+
+collect:
+  interval: %d
+  docker: %v
+  gpu: %v
+
+agent:
+  id: "%s"
+`, d.grpcAddr, d.pskToken, opts.CollectInterval, opts.Docker, opts.GPU, agentID)
+
+		setupCmds := []string{
+			"mkdir -p ~/.local/bin ~/.config/mantisops",
+			"mv /tmp/mantisops-agent ~/.local/bin/mantisops-agent",
+			"chmod +x ~/.local/bin/mantisops-agent",
+		}
+		for _, cmd := range setupCmds {
+			if _, stderr, err := sshClient.Execute(cmd); err != nil {
+				d.fail(managedID, fmt.Sprintf("执行命令失败 [%s]: %s %v", cmd, stderr, err))
+				return
+			}
+		}
+
+		if err := sshClient.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644); err != nil {
+			d.fail(managedID, "写入配置失败: "+err.Error())
+			return
+		}
+		if _, stderr, err := sshClient.Execute("mv /tmp/agent.yaml ~/.config/mantisops/agent.yaml"); err != nil {
+			d.fail(managedID, fmt.Sprintf("移动配置失败: %s %v", stderr, err))
+			return
+		}
+
+		// Use systemd user service if available, otherwise crontab + nohup
+		if _, _, err := sshClient.Execute("systemctl --user status 2>/dev/null"); err == nil {
+			// systemd user mode available
+			sshClient.Execute("mkdir -p ~/.config/systemd/user")
+			userService := `[Unit]
+Description=MantisOps Agent
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/mantisops-agent -config %h/.config/mantisops/agent.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+`
+			if err := sshClient.WriteFile("/tmp/mantisops-agent.service", []byte(userService), 0644); err != nil {
+				d.fail(managedID, "写入用户服务文件失败: "+err.Error())
+				return
+			}
+			userCmds := []string{
+				"mv /tmp/mantisops-agent.service ~/.config/systemd/user/mantisops-agent.service",
+				"systemctl --user daemon-reload",
+				"systemctl --user enable mantisops-agent",
+				"systemctl --user start mantisops-agent",
+			}
+			for _, cmd := range userCmds {
+				if _, stderr, err := sshClient.Execute(cmd); err != nil {
+					d.fail(managedID, fmt.Sprintf("启动用户服务失败 [%s]: %s %v", cmd, stderr, err))
+					return
+				}
+			}
+		} else {
+			// Fallback: nohup + crontab @reboot
+			startScript := `#!/bin/bash
+pkill -x mantisops-agent 2>/dev/null
+sleep 1
+nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.config/mantisops/agent.log 2>&1 &
+`
+			if err := sshClient.WriteFile("/tmp/mantisops-start.sh", []byte(startScript), 0755); err != nil {
+				d.fail(managedID, "写入启动脚本失败: "+err.Error())
+				return
+			}
+			fallbackCmds := []string{
+				"mv /tmp/mantisops-start.sh ~/.local/bin/mantisops-start.sh",
+				"chmod +x ~/.local/bin/mantisops-start.sh",
+				"~/.local/bin/mantisops-start.sh",
+				`(crontab -l 2>/dev/null | grep -v mantisops-start; echo "@reboot ~/.local/bin/mantisops-start.sh") | crontab -`,
+			}
+			for _, cmd := range fallbackCmds {
+				if _, stderr, err := sshClient.Execute(cmd); err != nil {
+					d.fail(managedID, fmt.Sprintf("启动失败 [%s]: %s %v", cmd, stderr, err))
+					return
+				}
+			}
 		}
 	}
 	d.broadcast(managedID, store.InstallStateInstalling, "Agent 已启动")
@@ -299,14 +412,62 @@ WantedBy=multi-user.target
 	waitCh := d.registerWait(agentID)
 	defer d.unregisterWait(agentID)
 
-	select {
-	case <-waitCh:
-		d.managedStore.UpdateState(managedID, store.InstallStateOnline, "")
-		d.managedStore.UpdateAgentInfo(managedID, agentID, "")
-		d.broadcast(managedID, store.InstallStateOnline, "Agent 已在线")
-		log.Printf("[deployer] agent %s registered for managed server %d", agentID, managedID)
-	case <-time.After(d.timeout):
-		d.fail(managedID, "Agent注册超时，请检查网络和防火墙")
+	// Periodically check agent health while waiting for registration
+	healthTicker := time.NewTicker(5 * time.Second)
+	defer healthTicker.Stop()
+
+	for {
+		select {
+		case <-waitCh:
+			d.managedStore.UpdateState(managedID, store.InstallStateOnline, "")
+			d.managedStore.UpdateAgentInfo(managedID, agentID, "")
+			d.broadcast(managedID, store.InstallStateOnline, "Agent 已在线")
+			log.Printf("[deployer] agent %s registered for managed server %d", agentID, managedID)
+			return
+		case <-time.After(d.timeout):
+			d.fail(managedID, "Agent注册超时，请检查网络和防火墙")
+			return
+		case <-healthTicker.C:
+			// Check if agent process is still running
+			stdout, _, _ := sshClient.Execute("pgrep -x mantisops-agent")
+			if strings.TrimSpace(stdout) == "" {
+				// Agent process died — check logs for error
+				var errMsg string
+				if hasSudo {
+					logOut, _, _ := sshClient.Execute("sudo journalctl -u mantisops-agent --no-pager -n 5 2>/dev/null")
+					errMsg = strings.TrimSpace(logOut)
+				} else {
+					logOut, _, _ := sshClient.Execute("tail -5 ~/.config/mantisops/agent.log 2>/dev/null")
+					errMsg = strings.TrimSpace(logOut)
+				}
+				if errMsg == "" {
+					errMsg = "Agent 进程已退出，未获取到日志"
+				}
+				d.fail(managedID, "Agent 启动后异常退出: "+errMsg)
+				return
+			}
+			// Check for gRPC errors in agent log (incompatible proto, auth failure, etc.)
+			var logOut string
+			if hasSudo {
+				logOut, _, _ = sshClient.Execute("sudo journalctl -u mantisops-agent --no-pager -n 10 2>/dev/null")
+			} else {
+				logOut, _, _ = sshClient.Execute("tail -10 ~/.config/mantisops/agent.log 2>/dev/null")
+			}
+			if strings.Contains(logOut, "unknown service") || strings.Contains(logOut, "Unimplemented") {
+				d.fail(managedID, "Agent 版本不兼容（proto 服务名不匹配），请更新 build 目录中的 Agent 二进制后重试")
+				// Stop the broken agent
+				if hasSudo {
+					sshClient.Execute("sudo systemctl stop mantisops-agent 2>/dev/null")
+				} else {
+					sshClient.Execute("pkill -x mantisops-agent 2>/dev/null")
+				}
+				return
+			}
+			if strings.Contains(logOut, "authentication") || strings.Contains(logOut, "PermissionDenied") {
+				d.fail(managedID, "Agent 认证失败，请检查 PSK Token 配置")
+				return
+			}
+		}
 	}
 }
 
