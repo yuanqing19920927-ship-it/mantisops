@@ -34,3 +34,4 @@ html/
 # Deployment docs with credentials
 docs/deploy-*.md
 docs/superpowers/
+server/server
