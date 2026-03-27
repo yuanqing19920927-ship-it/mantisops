@@ -12,7 +12,6 @@ import (
 	"os"
 )
 
-// Encrypt uses AES-256-GCM, returns base64(nonce + ciphertext + tag)
 func Encrypt(key, plaintext []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -30,7 +29,6 @@ func Encrypt(key, plaintext []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt decodes base64(nonce + ciphertext + tag)
 func Decrypt(key []byte, ciphertext string) ([]byte, error) {
 	data, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
@@ -51,7 +49,6 @@ func Decrypt(key []byte, ciphertext string) ([]byte, error) {
 	return gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
 }
 
-// ParseKeyHex parses a 64-char hex string into 32-byte key
 func ParseKeyHex(keyHex string) ([]byte, error) {
 	key, err := hex.DecodeString(keyHex)
 	if err != nil {
@@ -63,7 +60,6 @@ func ParseKeyHex(keyHex string) ([]byte, error) {
 	return key, nil
 }
 
-// GenerateKeyHex generates a random 32-byte key and returns hex encoding
 func GenerateKeyHex() (string, error) {
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {

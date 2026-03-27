@@ -104,7 +104,7 @@ func (d *Deployer) TestConnection(req TestConnRequest) (*TestConnResult, error) 
 
 // Deploy starts async agent installation. Uses CAS to prevent concurrent deploys.
 func (d *Deployer) Deploy(managedID int) error {
-	ok, err := d.managedStore.CASUpdateState(managedID, []string{"pending", "failed"}, "testing")
+	ok, err := d.managedStore.CASUpdateState(managedID, []string{store.InstallStatePending, store.InstallStateFailed}, store.InstallStateTesting)
 	if err != nil {
 		return err
 	}
@@ -147,14 +147,12 @@ func (d *Deployer) runDeploy(managedID int) {
 		return
 	}
 
-	// Get SSH credentials
 	cred, err := d.credStore.Get(managed.CredentialID)
 	if err != nil {
 		d.fail(managedID, "读取凭据失败: "+err.Error())
 		return
 	}
 
-	// Create SSH client
 	var sshClient *SSHClient
 	switch cred.Type {
 	case "ssh_password":
@@ -170,18 +168,16 @@ func (d *Deployer) runDeploy(managedID int) {
 		return
 	}
 
-	// Step 1: testing - SSH connectivity
-	d.broadcast(managedID, "testing", "SSH 连通性测试中...")
+	d.broadcast(managedID, store.InstallStateTesting, "SSH 连通性测试中...")
 	latency, _, _, _, err := sshClient.TestConnection()
 	if err != nil {
 		d.fail(managedID, "SSH连接失败: "+err.Error())
 		return
 	}
-	d.broadcast(managedID, "testing", fmt.Sprintf("SSH 连接成功 (延迟 %dms)", latency))
+	d.broadcast(managedID, store.InstallStateTesting, fmt.Sprintf("SSH 连接成功 (延迟 %dms)", latency))
 
-	// Step 2: connected - check target environment
-	d.managedStore.UpdateState(managedID, "connected", "")
-	d.broadcast(managedID, "connected", "检查目标环境...")
+	d.managedStore.UpdateState(managedID, store.InstallStateConnected, "")
+	d.broadcast(managedID, store.InstallStateConnected, "检查目标环境...")
 
 	if err := sshClient.Connect(); err != nil {
 		d.fail(managedID, "SSH连接失败: "+err.Error())
@@ -195,19 +191,17 @@ func (d *Deployer) runDeploy(managedID int) {
 		return
 	}
 	d.managedStore.UpdateDetectedArch(managedID, arch)
-	d.broadcast(managedID, "connected", fmt.Sprintf("架构: %s", arch))
+	d.broadcast(managedID, store.InstallStateConnected, fmt.Sprintf("架构: %s", arch))
 
-	// Check if agent already exists
 	stdout, _, _ := sshClient.Execute("pgrep -x opsboard-agent")
 	if strings.TrimSpace(stdout) != "" {
 		// Agent already running, stop it first
 		sshClient.Execute("sudo systemctl stop opsboard-agent 2>/dev/null || sudo killall opsboard-agent 2>/dev/null")
-		d.broadcast(managedID, "connected", "已停止旧 Agent")
+		d.broadcast(managedID, store.InstallStateConnected, "已停止旧 Agent")
 	}
 
-	// Step 3: uploading - SCP binary
-	d.managedStore.UpdateState(managedID, "uploading", "")
-	d.broadcast(managedID, "uploading", "上传 Agent 二进制...")
+	d.managedStore.UpdateState(managedID, store.InstallStateUploading, "")
+	d.broadcast(managedID, store.InstallStateUploading, "上传 Agent 二进制...")
 
 	binName := fmt.Sprintf("opsboard-agent-linux-%s", arch)
 	binPath := filepath.Join(d.binaryDir, binName)
@@ -215,15 +209,15 @@ func (d *Deployer) runDeploy(managedID int) {
 		d.fail(managedID, "上传失败: "+err.Error())
 		return
 	}
-	d.broadcast(managedID, "uploading", "上传完成")
+	d.broadcast(managedID, store.InstallStateUploading, "上传完成")
 
-	// Step 4: installing - config + systemd + start
-	d.managedStore.UpdateState(managedID, "installing", "")
-	d.broadcast(managedID, "installing", "安装 Agent...")
+	d.managedStore.UpdateState(managedID, store.InstallStateInstalling, "")
+	d.broadcast(managedID, store.InstallStateInstalling, "安装 Agent...")
 
-	// Parse install options
 	var opts InstallOptions
-	json.Unmarshal([]byte(managed.InstallOptions), &opts)
+	if err := json.Unmarshal([]byte(managed.InstallOptions), &opts); err != nil {
+		log.Printf("[deployer] invalid install_options for managed %d, using defaults: %v", managedID, err)
+	}
 	if opts.CollectInterval <= 0 {
 		opts.CollectInterval = 5
 	}
@@ -233,7 +227,6 @@ func (d *Deployer) runDeploy(managedID int) {
 		agentID = generateAgentID(managed.Host)
 	}
 
-	// Generate agent config
 	agentYAML := fmt.Sprintf(`server:
   address: "%s"
   token: "%s"
@@ -249,7 +242,6 @@ agent:
   id: "%s"
 `, d.grpcAddr, d.pskToken, opts.CollectInterval, opts.Docker, opts.GPU, agentID)
 
-	// Install binary
 	sshClient.Execute("sudo mkdir -p /etc/opsboard")
 	if err := sshClient.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644); err != nil {
 		d.fail(managedID, "写入配置失败: "+err.Error())
@@ -268,7 +260,6 @@ agent:
 		}
 	}
 
-	// Create systemd service
 	serviceUnit := `[Unit]
 Description=OpsBoard Agent
 After=network-online.target
@@ -300,20 +291,19 @@ WantedBy=multi-user.target
 			return
 		}
 	}
-	d.broadcast(managedID, "installing", "Agent 已启动")
+	d.broadcast(managedID, store.InstallStateInstalling, "Agent 已启动")
 
-	// Step 5: waiting - wait for gRPC registration
-	d.managedStore.UpdateState(managedID, "waiting", "")
-	d.broadcast(managedID, "waiting", "等待 Agent 注册...")
+	d.managedStore.UpdateState(managedID, store.InstallStateWaiting, "")
+	d.broadcast(managedID, store.InstallStateWaiting, "等待 Agent 注册...")
 
 	waitCh := d.registerWait(agentID)
 	defer d.unregisterWait(agentID)
 
 	select {
 	case <-waitCh:
-		d.managedStore.UpdateState(managedID, "online", "")
+		d.managedStore.UpdateState(managedID, store.InstallStateOnline, "")
 		d.managedStore.UpdateAgentInfo(managedID, agentID, "")
-		d.broadcast(managedID, "online", "Agent 已在线")
+		d.broadcast(managedID, store.InstallStateOnline, "Agent 已在线")
 		log.Printf("[deployer] agent %s registered for managed server %d", agentID, managedID)
 	case <-time.After(d.timeout):
 		d.fail(managedID, "Agent注册超时，请检查网络和防火墙")
@@ -321,8 +311,8 @@ WantedBy=multi-user.target
 }
 
 func (d *Deployer) fail(managedID int, errMsg string) {
-	d.managedStore.UpdateState(managedID, "failed", errMsg)
-	d.broadcast(managedID, "failed", errMsg)
+	d.managedStore.UpdateState(managedID, store.InstallStateFailed, errMsg)
+	d.broadcast(managedID, store.InstallStateFailed, errMsg)
 	log.Printf("[deployer] failed managed=%d: %s", managedID, errMsg)
 }
 

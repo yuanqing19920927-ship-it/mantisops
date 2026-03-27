@@ -19,7 +19,6 @@ func NewCloudHandler(mgr *cloud.Manager, cs *store.CloudStore, cred *store.Crede
 	return &CloudHandler{manager: mgr, cloud: cs, credStore: cred}
 }
 
-// ListAccounts returns all cloud accounts.
 func (h *CloudHandler) ListAccounts(c *gin.Context) {
 	accounts, err := h.cloud.ListAccounts()
 	if err != nil {
@@ -32,7 +31,6 @@ func (h *CloudHandler) ListAccounts(c *gin.Context) {
 	c.JSON(http.StatusOK, accounts)
 }
 
-// CreateAccount creates a cloud account, optionally creating an embedded credential first.
 func (h *CloudHandler) CreateAccount(c *gin.Context) {
 	var req struct {
 		Name         string   `json:"name" binding:"required"`
@@ -53,7 +51,6 @@ func (h *CloudHandler) CreateAccount(c *gin.Context) {
 
 	credID := req.CredentialID
 
-	// If an embedded credential is provided, create it first.
 	if req.Credential != nil {
 		id, err := h.credStore.Create(req.Credential.Name, req.Credential.Type, req.Credential.Data)
 		if err != nil {
@@ -81,7 +78,6 @@ func (h *CloudHandler) CreateAccount(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"id": accountID, "credential_id": credID})
 }
 
-// UpdateAccount updates a cloud account's name, regions, and auto_discover flag.
 func (h *CloudHandler) UpdateAccount(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -107,7 +103,6 @@ func (h *CloudHandler) UpdateAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// DeleteAccount performs a two-phase delete. Without ?force=true it returns an impact summary.
 func (h *CloudHandler) DeleteAccount(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -128,7 +123,6 @@ func (h *CloudHandler) DeleteAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// Verify validates AK/SK without creating any DB record.
 func (h *CloudHandler) Verify(c *gin.Context) {
 	var req struct {
 		AccessKeyID     string `json:"access_key_id" binding:"required"`
@@ -146,7 +140,6 @@ func (h *CloudHandler) Verify(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// SyncAccount triggers async instance discovery for a cloud account.
 func (h *CloudHandler) SyncAccount(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -160,7 +153,6 @@ func (h *CloudHandler) SyncAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "同步已启动"})
 }
 
-// ListInstances returns all instances for a given cloud account.
 func (h *CloudHandler) ListInstances(c *gin.Context) {
 	accountID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -178,7 +170,6 @@ func (h *CloudHandler) ListInstances(c *gin.Context) {
 	c.JSON(http.StatusOK, instances)
 }
 
-// ConfirmInstances batch-confirms instances (sets monitored=1 and registers ECS as servers).
 func (h *CloudHandler) ConfirmInstances(c *gin.Context) {
 	var req struct {
 		InstanceIDs []int `json:"instance_ids" binding:"required"`
@@ -194,7 +185,6 @@ func (h *CloudHandler) ConfirmInstances(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(req.InstanceIDs)})
 }
 
-// UpdateInstance updates a single instance (e.g. enable/disable monitoring).
 func (h *CloudHandler) UpdateInstance(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -217,7 +207,6 @@ func (h *CloudHandler) UpdateInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// AddInstance manually adds a cloud instance.
 func (h *CloudHandler) AddInstance(c *gin.Context) {
 	var req struct {
 		CloudAccountID int    `json:"cloud_account_id" binding:"required"`
@@ -256,7 +245,6 @@ func (h *CloudHandler) AddInstance(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"ok": true})
 }
 
-// DeleteInstance performs a two-phase delete for a single instance.
 func (h *CloudHandler) DeleteInstance(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

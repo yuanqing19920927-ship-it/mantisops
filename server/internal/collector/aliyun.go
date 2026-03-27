@@ -289,7 +289,7 @@ func (ac *AliyunCollector) MigrateFromConfig() int {
 		}
 	}
 
-	ac.cloudStore.UpdateAccountSyncState(accountID, "synced", "")
+	ac.cloudStore.UpdateAccountSyncState(accountID, store.SyncStateSynced, "")
 
 	log.Printf("[aliyun] migrated: %d ECS + %d RDS instances from config, triggering sync for metadata...", len(ac.cfg.Instances), len(ac.cfg.RDS))
 	return accountID

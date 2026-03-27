@@ -13,7 +13,8 @@ import {
   syncCloudAccount,
   deleteCloudAccount,
 } from '../../api/onboarding'
-import type { ManagedServer, CloudAccount } from '../../types/onboarding'
+import type { ManagedServer, CloudAccount, InstallState, SyncState } from '../../types/onboarding'
+import { INSTALL_STATE_LABELS, SYNC_STATE_LABELS } from '../../types/onboarding'
 
 export default function Settings() {
   const { servers, fetchDashboard } = useServerStore()
@@ -28,11 +29,11 @@ export default function Settings() {
   const [syncingId, setSyncingId] = useState<number | null>(null)
 
   const fetchManaged = useCallback(() => {
-    getManagedServers().then(setManagedServers).catch(() => {})
+    getManagedServers().then(setManagedServers).catch((err) => console.error('[settings] fetch managed:', err))
   }, [])
 
   const fetchCloud = useCallback(() => {
-    getCloudAccounts().then(setCloudAccounts).catch(() => {})
+    getCloudAccounts().then(setCloudAccounts).catch((err) => console.error('[settings] fetch cloud:', err))
   }, [])
 
   useEffect(() => {
@@ -75,35 +76,7 @@ export default function Settings() {
     fetchCloud()
   }
 
-  const installStateLabel = (state: string) => {
-    const map: Record<string, string> = {
-      pending: '等待部署',
-      testing: '测试连接',
-      connected: '已连接',
-      uploading: '上传中',
-      installing: '安装中',
-      waiting: '等待上线',
-      online: '在线',
-      failed: '安装失败',
-    }
-    return map[state] ?? state
-  }
-
-  const syncStateLabel = (state: string) => {
-    const map: Record<string, string> = {
-      pending: '待同步',
-      syncing: '同步中',
-      synced: '已同步',
-      partial: '部分同步',
-      failed: '同步失败',
-    }
-    return map[state] ?? state
-  }
-
-  const providerLabel = (provider: string) => {
-    if (provider === 'aliyun') return '阿里云'
-    return provider
-  }
+  const PROVIDER_LABELS: Record<string, string> = { aliyun: '阿里云' }
 
   return (
     <div className="flex flex-col gap-5">
@@ -313,7 +286,7 @@ export default function Settings() {
                             color: isOnline ? '#0ab39c' : isFailed ? '#f06548' : '#f7b84b',
                           }}
                         >
-                          {installStateLabel(m.install_state)}
+                          {INSTALL_STATE_LABELS[m.install_state] ?? m.install_state}
                         </span>
                         {isFailed && m.install_error && (
                           <span
@@ -403,7 +376,7 @@ export default function Settings() {
                       <span className="text-[#495057] font-medium text-sm">{a.name}</span>
                     </td>
                     <td className="hidden sm:table-cell px-5 py-3.5">
-                      <span className="text-[12px] text-[#878a99]">{providerLabel(a.provider)}</span>
+                      <span className="text-[12px] text-[#878a99]">{PROVIDER_LABELS[a.provider] ?? a.provider}</span>
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2">
@@ -421,7 +394,7 @@ export default function Settings() {
                             color: isSynced ? '#0ab39c' : isFailed ? '#f06548' : '#f7b84b',
                           }}
                         >
-                          {syncStateLabel(a.sync_state)}
+                          {SYNC_STATE_LABELS[a.sync_state] ?? a.sync_state}
                         </span>
                         {isFailed && a.sync_error && (
                           <span

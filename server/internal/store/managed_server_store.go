@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+// Install state constants for ManagedServer
+const (
+	InstallStatePending    = "pending"
+	InstallStateTesting    = "testing"
+	InstallStateConnected  = "connected"
+	InstallStateUploading  = "uploading"
+	InstallStateInstalling = "installing"
+	InstallStateWaiting    = "waiting"
+	InstallStateOnline     = "online"
+	InstallStateFailed     = "failed"
+)
+
 type ManagedServer struct {
 	ID             int       `json:"id"`
 	Host           string    `json:"host"`
@@ -83,9 +95,7 @@ func (s *ManagedServerStore) List() ([]ManagedServer, error) {
 }
 
 // CASUpdateState atomically updates state only if current state matches one of fromStates.
-// Returns true if updated, false if state didn't match (concurrent operation).
 func (s *ManagedServerStore) CASUpdateState(id int, fromStates []string, toState string) (bool, error) {
-	// Build WHERE clause: install_state IN (?, ?, ...)
 	placeholders := ""
 	args := make([]interface{}, 0, len(fromStates)+2)
 	args = append(args, toState)
@@ -110,7 +120,6 @@ func (s *ManagedServerStore) CASUpdateState(id int, fromStates []string, toState
 	return affected > 0, nil
 }
 
-// UpdateState updates the install state and optional error message
 func (s *ManagedServerStore) UpdateState(id int, state, errorMsg string) error {
 	_, err := s.db.Exec(
 		`UPDATE managed_servers SET install_state=?, install_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
@@ -119,7 +128,6 @@ func (s *ManagedServerStore) UpdateState(id int, state, errorMsg string) error {
 	return err
 }
 
-// UpdateDetectedArch stores the detected architecture
 func (s *ManagedServerStore) UpdateDetectedArch(id int, arch string) error {
 	_, err := s.db.Exec(
 		`UPDATE managed_servers SET detected_arch=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
@@ -128,7 +136,6 @@ func (s *ManagedServerStore) UpdateDetectedArch(id int, arch string) error {
 	return err
 }
 
-// UpdateAgentInfo sets the agent_host_id and version after successful registration
 func (s *ManagedServerStore) UpdateAgentInfo(id int, agentHostID, agentVersion string) error {
 	_, err := s.db.Exec(
 		`UPDATE managed_servers SET agent_host_id=?, agent_version=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
@@ -137,25 +144,22 @@ func (s *ManagedServerStore) UpdateAgentInfo(id int, agentHostID, agentVersion s
 	return err
 }
 
-// Delete removes a managed server record. If the credential is no longer referenced
-// by any other record, it's also deleted.
+// Delete removes a managed server record and cleans up orphaned credentials.
 func (s *ManagedServerStore) Delete(id int, credStore *CredentialStore) error {
-	// Get credential_id before deleting
 	var credID int
 	err := s.db.QueryRow("SELECT credential_id FROM managed_servers WHERE id = ?", id).Scan(&credID)
 	if err != nil {
 		return err
 	}
 
-	// Delete the managed server
 	_, err = s.db.Exec("DELETE FROM managed_servers WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
 
-	// Try to clean up orphaned credential (ignore errors — it may still be referenced)
+	// Clean up orphaned credential (Delete returns error if still referenced)
 	if credStore != nil {
-		credStore.Delete(credID) // Will fail silently if still referenced
+		_ = credStore.Delete(credID)
 	}
 
 	return nil

@@ -154,8 +154,8 @@ export function AddCloudAccountDialog({ open, onClose, onSuccess }: Props) {
       await confirmCloudInstances(ids)
       setConfirmDone(true)
       onSuccess?.()
-    } catch {
-      // ignore, user can retry
+    } catch (err) {
+      console.error('[cloud] confirm instances:', err)
     } finally {
       setConfirming(false)
     }

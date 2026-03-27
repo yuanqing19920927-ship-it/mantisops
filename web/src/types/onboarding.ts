@@ -1,3 +1,25 @@
+export type InstallState = 'pending' | 'testing' | 'connected' | 'uploading' | 'installing' | 'waiting' | 'online' | 'failed'
+export type SyncState = 'pending' | 'syncing' | 'synced' | 'partial' | 'failed'
+
+export const INSTALL_STATE_LABELS: Record<InstallState, string> = {
+  pending: '等待部署',
+  testing: '测试连接',
+  connected: '已连接',
+  uploading: '上传中',
+  installing: '安装中',
+  waiting: '等待上线',
+  online: '在线',
+  failed: '安装失败',
+}
+
+export const SYNC_STATE_LABELS: Record<SyncState, string> = {
+  pending: '待同步',
+  syncing: '同步中',
+  synced: '已同步',
+  partial: '部分同步',
+  failed: '同步失败',
+}
+
 export interface ManagedServer {
   id: number
   host: string
@@ -7,7 +29,7 @@ export interface ManagedServer {
   detected_arch: string
   ssh_host_key: string
   install_options: string
-  install_state: string // pending | testing | connected | uploading | installing | waiting | online | failed
+  install_state: InstallState
   install_error: string
   agent_host_id: string
   agent_version: string
@@ -22,7 +44,7 @@ export interface CloudAccount {
   credential_id: number
   region_ids: string[]
   auto_discover: boolean
-  sync_state: string // pending | syncing | synced | partial | failed
+  sync_state: SyncState
   sync_error: string
   last_synced_at: string | null
   created_at: string

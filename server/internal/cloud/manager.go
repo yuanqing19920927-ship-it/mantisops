@@ -108,25 +108,22 @@ func (m *Manager) Sync(accountID int) error {
 		return err
 	}
 
-	// Update state to syncing
-	m.cloud.UpdateAccountSyncState(accountID, "syncing", "")
-	m.broadcast("cloud_sync_progress", accountID, "syncing", "开始同步...")
+	m.cloud.UpdateAccountSyncState(accountID, store.SyncStateSyncing, "")
+	m.broadcast("cloud_sync_progress", accountID, store.SyncStateSyncing, "开始同步...")
 
 	go func() {
 		syncErrors := map[string]string{}
 
-		// Get credentials
 		cred, err := m.credStore.Get(account.CredentialID)
 		if err != nil {
-			m.cloud.UpdateAccountSyncState(accountID, "failed", err.Error())
-			m.broadcast("cloud_sync_progress", accountID, "failed", "凭据读取失败")
+			m.cloud.UpdateAccountSyncState(accountID, store.SyncStateFailed, err.Error())
+			m.broadcast("cloud_sync_progress", accountID, store.SyncStateFailed, "凭据读取失败")
 			return
 		}
 		ak := cred.Data["access_key_id"]
 		sk := cred.Data["access_key_secret"]
 
-		// Discover ECS
-		m.broadcast("cloud_sync_progress", accountID, "syncing", "正在发现 ECS 实例...")
+		m.broadcast("cloud_sync_progress", accountID, store.SyncStateSyncing, "正在发现 ECS 实例...")
 		ecsInstances, err := m.DiscoverECS(ak, sk, account.RegionIDs)
 		if err != nil {
 			syncErrors["ecs"] = err.Error()
@@ -137,12 +134,11 @@ func (m *Manager) Sync(accountID int) error {
 				inst.CloudAccountID = accountID
 				m.cloud.UpsertInstance(accountID, &inst)
 			}
-			m.broadcast("cloud_sync_progress", accountID, "syncing",
+			m.broadcast("cloud_sync_progress", accountID, store.SyncStateSyncing,
 				fmt.Sprintf("发现 %d 台 ECS 实例", len(ecsInstances)))
 		}
 
-		// Discover RDS
-		m.broadcast("cloud_sync_progress", accountID, "syncing", "正在发现 RDS 实例...")
+		m.broadcast("cloud_sync_progress", accountID, store.SyncStateSyncing, "正在发现 RDS 实例...")
 		rdsInstances, err := m.DiscoverRDS(ak, sk, account.RegionIDs)
 		if err != nil {
 			syncErrors["rds"] = err.Error()
@@ -153,11 +149,10 @@ func (m *Manager) Sync(accountID int) error {
 				inst.CloudAccountID = accountID
 				m.cloud.UpsertInstance(accountID, &inst)
 			}
-			m.broadcast("cloud_sync_progress", accountID, "syncing",
+			m.broadcast("cloud_sync_progress", accountID, store.SyncStateSyncing,
 				fmt.Sprintf("发现 %d 个 RDS 实例", len(rdsInstances)))
 		}
 
-		// Determine final state
 		errJSON, _ := json.Marshal(syncErrors)
 		allOK := syncErrors["ecs"] == "ok" && syncErrors["rds"] == "ok"
 		allFail := syncErrors["ecs"] != "ok" && syncErrors["rds"] != "ok"
@@ -165,11 +160,11 @@ func (m *Manager) Sync(accountID int) error {
 		var state string
 		switch {
 		case allOK:
-			state = "synced"
+			state = store.SyncStateSynced
 		case allFail:
-			state = "failed"
+			state = store.SyncStateFailed
 		default:
-			state = "partial"
+			state = store.SyncStatePartial
 		}
 
 		m.cloud.UpdateAccountSyncState(accountID, state, string(errJSON))

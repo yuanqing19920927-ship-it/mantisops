@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -18,27 +19,49 @@ func (h *ServerHandler) List(c *gin.Context) {
 		return
 	}
 
-	// Determine source for each server
+	sourceMap := h.loadSourceMap(h.store.DB())
 	for i := range servers {
-		servers[i].Source = h.determineSource(servers[i].HostID)
+		if src, ok := sourceMap[servers[i].HostID]; ok {
+			servers[i].Source = src
+		} else {
+			servers[i].Source = "agent"
+		}
 	}
 
 	c.JSON(http.StatusOK, servers)
 }
 
-func (h *ServerHandler) determineSource(hostID string) string {
-	var count int
-	// Check managed_servers first
-	h.store.DB().QueryRow("SELECT COUNT(*) FROM managed_servers WHERE agent_host_id = ?", hostID).Scan(&count)
-	if count > 0 {
-		return "managed"
+// loadSourceMap batch-loads source info for all servers in two queries instead of 2*N.
+func (h *ServerHandler) loadSourceMap(db *sql.DB) map[string]string {
+	result := make(map[string]string)
+
+	// managed_servers: agent_host_id -> "managed"
+	rows, err := db.Query("SELECT agent_host_id FROM managed_servers WHERE agent_host_id != ''")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var hostID string
+			if rows.Scan(&hostID) == nil {
+				result[hostID] = "managed"
+			}
+		}
 	}
-	// Check cloud_instances
-	h.store.DB().QueryRow("SELECT COUNT(*) FROM cloud_instances WHERE host_id = ? AND instance_type = 'ecs'", hostID).Scan(&count)
-	if count > 0 {
-		return "cloud"
+
+	// cloud_instances (ECS only): host_id -> "cloud" (only if not already "managed")
+	rows2, err := db.Query("SELECT host_id FROM cloud_instances WHERE instance_type = 'ecs'")
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var hostID string
+			if rows2.Scan(&hostID) == nil {
+				if _, exists := result[hostID]; !exists {
+					result[hostID] = "cloud"
+				}
+			}
+		}
 	}
-	return "agent"
+
+	return result
 }
 
 func (h *ServerHandler) Get(c *gin.Context) {

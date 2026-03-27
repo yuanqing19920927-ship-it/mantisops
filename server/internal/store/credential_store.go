@@ -40,7 +40,10 @@ func (s *CredentialStore) MasterKey() []byte {
 }
 
 func (s *CredentialStore) Create(name, credType string, data map[string]string) (int, error) {
-	plaintext, _ := json.Marshal(data)
+	plaintext, err := json.Marshal(data)
+	if err != nil {
+		return 0, fmt.Errorf("marshal credential data: %w", err)
+	}
 	encrypted, err := crypto.Encrypt(s.masterKey, plaintext)
 	if err != nil {
 		return 0, fmt.Errorf("encrypt: %w", err)
@@ -70,7 +73,9 @@ func (s *CredentialStore) Get(id int) (*Credential, error) {
 		return nil, fmt.Errorf("decrypt credential %d: %w", id, err)
 	}
 	c.Data = make(map[string]string)
-	json.Unmarshal(plaintext, &c.Data)
+	if err := json.Unmarshal(plaintext, &c.Data); err != nil {
+		return nil, fmt.Errorf("unmarshal credential %d: %w", id, err)
+	}
 	return &c, nil
 }
 
@@ -97,7 +102,10 @@ func (s *CredentialStore) List() ([]CredentialSummary, error) {
 }
 
 func (s *CredentialStore) Update(id int, name string, data map[string]string) error {
-	plaintext, _ := json.Marshal(data)
+	plaintext, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal credential data: %w", err)
+	}
 	encrypted, err := crypto.Encrypt(s.masterKey, plaintext)
 	if err != nil {
 		return err
@@ -111,10 +119,12 @@ func (s *CredentialStore) Update(id int, name string, data map[string]string) er
 
 func (s *CredentialStore) Delete(id int) error {
 	var refCount int
-	s.db.QueryRow(`
+	if err := s.db.QueryRow(`
 		SELECT (SELECT COUNT(*) FROM managed_servers WHERE credential_id = ?) +
 		       (SELECT COUNT(*) FROM cloud_accounts WHERE credential_id = ?)
-	`, id, id).Scan(&refCount)
+	`, id, id).Scan(&refCount); err != nil {
+		return fmt.Errorf("check credential references: %w", err)
+	}
 	if refCount > 0 {
 		return fmt.Errorf("credential %d is referenced by %d records, cannot delete", id, refCount)
 	}

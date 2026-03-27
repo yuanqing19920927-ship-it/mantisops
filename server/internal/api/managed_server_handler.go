@@ -20,7 +20,6 @@ func NewManagedServerHandler(s *store.ManagedServerStore, d *deployer.Deployer, 
 	return &ManagedServerHandler{store: s, deployer: d, credStore: cs}
 }
 
-// List returns all managed servers
 func (h *ManagedServerHandler) List(c *gin.Context) {
 	list, err := h.store.List()
 	if err != nil {
@@ -33,14 +32,12 @@ func (h *ManagedServerHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
-// Create adds a new managed server (with optional embedded credential)
 func (h *ManagedServerHandler) Create(c *gin.Context) {
 	var req struct {
 		Host     string `json:"host" binding:"required"`
 		SSHPort  int    `json:"ssh_port"`
 		SSHUser  string `json:"ssh_user" binding:"required"`
 		HostKey  string `json:"host_key"`
-		// Either credential_id or embedded credential
 		CredentialID int `json:"credential_id"`
 		Credential   *struct {
 			Name string            `json:"name"`
@@ -93,7 +90,6 @@ func (h *ManagedServerHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, ms)
 }
 
-// TestConnection performs a dry-run SSH test without saving to DB
 func (h *ManagedServerHandler) TestConnection(c *gin.Context) {
 	var req deployer.TestConnRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -111,7 +107,6 @@ func (h *ManagedServerHandler) TestConnection(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// Deploy triggers agent installation
 func (h *ManagedServerHandler) Deploy(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -125,12 +120,10 @@ func (h *ManagedServerHandler) Deploy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "deployment started"})
 }
 
-// Retry retries a failed deployment (same as Deploy - CAS handles the state check)
 func (h *ManagedServerHandler) Retry(c *gin.Context) {
-	h.Deploy(c) // CAS in Deploy() only allows pending/failed states
+	h.Deploy(c)
 }
 
-// Delete removes a managed server record
 func (h *ManagedServerHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -144,7 +137,6 @@ func (h *ManagedServerHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// Uninstall remotely uninstalls the agent
 func (h *ManagedServerHandler) Uninstall(c *gin.Context) {
 	// TODO: implement remote uninstall via SSH
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet"})

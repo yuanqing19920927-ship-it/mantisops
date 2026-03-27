@@ -21,7 +21,6 @@ type SSHClient struct {
 	conn    *ssh.Client
 }
 
-// NewSSHClientPassword creates an SSH client with password auth
 func NewSSHClientPassword(host string, port int, user, password string, hostKeyStr string) *SSHClient {
 	c := &SSHClient{
 		host: host,
@@ -38,7 +37,6 @@ func NewSSHClientPassword(host string, port int, user, password string, hostKeyS
 	return c
 }
 
-// NewSSHClientKey creates an SSH client with private key auth
 func NewSSHClientKey(host string, port int, user, privateKey, passphrase string, hostKeyStr string) (*SSHClient, error) {
 	var signer ssh.Signer
 	var err error
@@ -65,7 +63,6 @@ func NewSSHClientKey(host string, port int, user, privateKey, passphrase string,
 	return c, nil
 }
 
-// TestConnection tests SSH connectivity and returns latency, host key, arch, OS
 func (c *SSHClient) TestConnection() (latencyMs int, hostKey string, arch string, osName string, err error) {
 	start := time.Now()
 
@@ -99,7 +96,6 @@ func (c *SSHClient) TestConnection() (latencyMs int, hostKey string, arch string
 		hostKey = strings.TrimSpace(hostKey)
 	}
 
-	// Detect arch
 	session, err := conn.NewSession()
 	if err == nil {
 		out, err2 := session.Output("uname -m")
@@ -117,7 +113,6 @@ func (c *SSHClient) TestConnection() (latencyMs int, hostKey string, arch string
 		session.Close()
 	}
 
-	// Detect OS
 	session2, err := conn.NewSession()
 	if err == nil {
 		out, err2 := session2.Output("cat /etc/os-release 2>/dev/null | grep ^PRETTY_NAME= | cut -d'\"' -f2")
@@ -130,7 +125,6 @@ func (c *SSHClient) TestConnection() (latencyMs int, hostKey string, arch string
 	return latencyMs, hostKey, arch, osName, nil
 }
 
-// Connect establishes the SSH connection for subsequent operations
 func (c *SSHClient) Connect() error {
 	config := &ssh.ClientConfig{
 		User:    c.user,
@@ -155,7 +149,6 @@ func (c *SSHClient) Connect() error {
 	return nil
 }
 
-// Close closes the SSH connection
 func (c *SSHClient) Close() {
 	if c.conn != nil {
 		c.conn.Close()
@@ -163,7 +156,6 @@ func (c *SSHClient) Close() {
 	}
 }
 
-// Execute runs a command and returns stdout, stderr
 func (c *SSHClient) Execute(cmd string) (stdout, stderr string, err error) {
 	if c.conn == nil {
 		return "", "", fmt.Errorf("not connected")
@@ -182,7 +174,6 @@ func (c *SSHClient) Execute(cmd string) (stdout, stderr string, err error) {
 	return outBuf.String(), errBuf.String(), err
 }
 
-// Upload copies a local file to the remote host via SFTP
 func (c *SSHClient) Upload(localPath, remotePath string) error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected")
@@ -213,7 +204,6 @@ func (c *SSHClient) Upload(localPath, remotePath string) error {
 	return nil
 }
 
-// WriteFile writes content to a remote file via SFTP
 func (c *SSHClient) WriteFile(remotePath string, content []byte, perm os.FileMode) error {
 	if c.conn == nil {
 		return fmt.Errorf("not connected")
@@ -235,15 +225,12 @@ func (c *SSHClient) WriteFile(remotePath string, content []byte, perm os.FileMod
 		return fmt.Errorf("write %s: %w", remotePath, err)
 	}
 
-	if err := sftpClient.Chmod(remotePath, perm); err != nil {
-		// Non-fatal, some systems may not support chmod via SFTP
-		_ = err
-	}
+	// Non-fatal: some systems may not support chmod via SFTP
+	_ = sftpClient.Chmod(remotePath, perm)
 
 	return nil
 }
 
-// DetectArch returns the target architecture (amd64/arm64)
 func (c *SSHClient) DetectArch() (string, error) {
 	stdout, _, err := c.Execute("uname -m")
 	if err != nil {
