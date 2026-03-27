@@ -18,7 +18,6 @@
 - **接入管理** — SSH 一键部署 Agent + 阿里云账号自动发现 ECS/RDS
 - **历史趋势** — 基于 VictoriaMetrics 的时序数据存储与查询
 - **分组管理** — 服务器分组与排序
-- **暗色主题** — 支持亮/暗主题切换
 
 ## 架构
 
@@ -171,7 +170,7 @@ opsboard/
 
 ## 截图
 
-> TODO: 添加截图
+![Dashboard](docs/screenshot-dashboard.png)
 
 ## License
 
