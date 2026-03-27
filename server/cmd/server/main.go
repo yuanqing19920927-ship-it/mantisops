@@ -99,10 +99,10 @@ func main() {
 	authHandler := api.NewAuthHandler(cfg.Auth.Username, cfg.Auth.Password, cfg.Auth.JWTSecret)
 
 	// Database (RDS)
-	dbHandler := api.NewDatabaseHandler(cfg.Aliyun.RDS, vmStore)
+	dbHandler := api.NewDatabaseHandler(cloudStore, vmStore)
 
 	// Billing
-	billingHandler := api.NewBillingHandler(cfg.Aliyun)
+	billingHandler := api.NewBillingHandler(cloudStore, credStore, cfg.Aliyun)
 
 	// Groups
 	groupHandler := api.NewGroupHandler(groupStore, serverStore)

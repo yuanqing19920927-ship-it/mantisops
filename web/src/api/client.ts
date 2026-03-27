@@ -126,6 +126,8 @@ export interface BillingItem {
   expire_date: string
   days_left: number
   status: string
+  account_id: number
+  account_name: string
 }
 
 export async function getBilling(): Promise<BillingItem[]> {
@@ -137,6 +139,11 @@ export async function getBilling(): Promise<BillingItem[]> {
 export interface RDSInfo {
   host_id: string
   name: string
+  engine: string
+  spec: string
+  endpoint: string
+  account_id: number
+  account_name: string
   metrics: Record<string, number>
 }
 
