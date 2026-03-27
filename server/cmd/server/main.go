@@ -87,7 +87,7 @@ func main() {
 	}
 
 	// gRPC
-	handler := grpcpkg.NewHandler(serverStore, mc.Handle)
+	handler := grpcpkg.NewHandler(serverStore, mc.Handle, nil)
 	psk := grpcpkg.NewPSKInterceptor(cfg.Server.PSKToken)
 	go func() {
 		if err := grpcpkg.StartPlain(cfg.Server.GRPCAddr, handler, psk); err != nil {

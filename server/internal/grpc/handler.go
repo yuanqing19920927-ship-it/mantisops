@@ -14,10 +14,11 @@ type Handler struct {
 	pb.UnimplementedAgentServiceServer
 	serverStore *store.ServerStore
 	onMetrics   func(hostID string, payload *pb.MetricsPayload)
+	onRegister  func(hostID string)
 }
 
-func NewHandler(ss *store.ServerStore, onMetrics func(string, *pb.MetricsPayload)) *Handler {
-	return &Handler{serverStore: ss, onMetrics: onMetrics}
+func NewHandler(ss *store.ServerStore, onMetrics func(string, *pb.MetricsPayload), onRegister func(string)) *Handler {
+	return &Handler{serverStore: ss, onMetrics: onMetrics, onRegister: onRegister}
 }
 
 func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
@@ -41,6 +42,12 @@ func (h *Handler) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Re
 		log.Printf("register error: %v", err)
 	}
 	log.Printf("agent registered: %s (%s)", req.Hostname, req.HostId)
+
+	// Notify deployer if waiting for this agent
+	if h.onRegister != nil {
+		h.onRegister(req.HostId)
+	}
+
 	return &pb.RegisterResponse{Accepted: true, ReportInterval: 5}, nil
 }
 
