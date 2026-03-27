@@ -13,7 +13,7 @@ import {
   syncCloudAccount,
   deleteCloudAccount,
 } from '../../api/onboarding'
-import type { ManagedServer, CloudAccount, InstallState, SyncState } from '../../types/onboarding'
+import type { ManagedServer, CloudAccount } from '../../types/onboarding'
 import { INSTALL_STATE_LABELS, SYNC_STATE_LABELS } from '../../types/onboarding'
 
 export default function Settings() {
