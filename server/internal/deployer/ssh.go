@@ -13,20 +13,22 @@ import (
 )
 
 type SSHClient struct {
-	host    string
-	port    int
-	user    string
-	auth    ssh.AuthMethod
-	hostKey ssh.PublicKey // nil = accept any (TOFU first connect)
-	conn    *ssh.Client
+	host     string
+	port     int
+	user     string
+	password string // stored for sudo -S
+	auth     ssh.AuthMethod
+	hostKey  ssh.PublicKey // nil = accept any (TOFU first connect)
+	conn     *ssh.Client
 }
 
 func NewSSHClientPassword(host string, port int, user, password string, hostKeyStr string) *SSHClient {
 	c := &SSHClient{
-		host: host,
-		port: port,
-		user: user,
-		auth: ssh.Password(password),
+		host:     host,
+		port:     port,
+		user:     user,
+		password: password,
+		auth:     ssh.Password(password),
 	}
 	if hostKeyStr != "" {
 		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hostKeyStr))
@@ -169,6 +171,12 @@ func (c *SSHClient) Execute(cmd string) (stdout, stderr string, err error) {
 	var outBuf, errBuf strings.Builder
 	session.Stdout = &outBuf
 	session.Stderr = &errBuf
+
+	// If command uses sudo and we have a password, pipe it via stdin
+	if strings.Contains(cmd, "sudo ") && c.password != "" {
+		session.Stdin = strings.NewReader(c.password + "\n")
+		cmd = strings.ReplaceAll(cmd, "sudo ", "sudo -S ")
+	}
 
 	err = session.Run(cmd)
 	return outBuf.String(), errBuf.String(), err

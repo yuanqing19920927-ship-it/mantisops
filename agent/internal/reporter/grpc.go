@@ -56,7 +56,7 @@ func (r *Reporter) Register() error {
 	if err != nil {
 		return err
 	}
-	_, err = r.client.Register(r.authCtx(), &pb.RegisterRequest{
+	req := &pb.RegisterRequest{
 		HostId:       r.hostID,
 		Hostname:     host.Hostname,
 		Os:           host.OS,
@@ -69,7 +69,16 @@ func (r *Reporter) Register() error {
 		CpuModel:     host.CPUModel,
 		MemoryTotal:  host.MemoryTotal,
 		DiskTotal:    host.DiskTotal,
-	})
+	}
+
+	if r.cfg.Collect.GPU {
+		if gpu, err := collector.CollectGPU(); err == nil {
+			req.GpuModel = gpu.Name
+			req.GpuMemory = gpu.MemoryTotal
+		}
+	}
+
+	_, err = r.client.Register(r.authCtx(), req)
 	return err
 }
 

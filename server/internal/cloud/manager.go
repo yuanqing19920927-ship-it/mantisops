@@ -168,6 +168,12 @@ func (m *Manager) Sync(accountID int) error {
 		}
 
 		m.cloud.UpdateAccountSyncState(accountID, state, string(errJSON))
+
+		// Update servers table with cloud instance info for monitored ECS instances
+		if err := m.cloud.SyncServersFromCloud(accountID); err != nil {
+			log.Printf("[cloud] sync servers info for account %d: %v", accountID, err)
+		}
+
 		m.broadcast("cloud_sync_progress", accountID, state, "同步完成")
 	}()
 
@@ -224,6 +230,24 @@ func (m *Manager) DiscoverECS(ak, sk string, regionIDs []string) ([]store.CloudI
 				name := tea.StringValue(inst.InstanceName)
 				spec := tea.StringValue(inst.InstanceType)
 
+				// Collect IPs
+				var ips []string
+				if inst.PublicIpAddress != nil {
+					ips = append(ips, tea.StringSliceValue(inst.PublicIpAddress.IpAddress)...)
+				}
+				if inst.VpcAttributes != nil && inst.VpcAttributes.PrivateIpAddress != nil {
+					ips = append(ips, tea.StringSliceValue(inst.VpcAttributes.PrivateIpAddress.IpAddress)...)
+				}
+
+				// Store extra system info for populating servers table
+				extra := map[string]interface{}{
+					"os_name": tea.StringValue(inst.OSName),
+					"cpu":     tea.Int32Value(inst.Cpu),
+					"memory":  tea.Int32Value(inst.Memory),
+					"ips":     ips,
+				}
+				extraJSON, _ := json.Marshal(extra)
+
 				instances = append(instances, store.CloudInstance{
 					InstanceType: "ecs",
 					InstanceID:   instanceID,
@@ -231,6 +255,7 @@ func (m *Manager) DiscoverECS(ak, sk string, regionIDs []string) ([]store.CloudI
 					InstanceName: name,
 					RegionID:     region,
 					Spec:         spec,
+					Extra:        string(extraJSON),
 				})
 			}
 

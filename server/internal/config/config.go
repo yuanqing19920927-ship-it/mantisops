@@ -45,13 +45,14 @@ type AliyunConfig struct {
 }
 
 type ServerConfig struct {
-	HTTPAddr    string `yaml:"http_addr"`
-	GRPCAddr    string `yaml:"grpc_addr"`
-	GRPCTLSAddr string `yaml:"grpc_tls_addr"`
-	TLSCert     string `yaml:"grpc_tls_cert"`
-	TLSKey      string `yaml:"grpc_tls_key"`
-	PSKToken    string `yaml:"psk_token"`
-	StaticDir   string `yaml:"static_dir"`
+	HTTPAddr         string `yaml:"http_addr"`
+	GRPCAddr         string `yaml:"grpc_addr"`
+	GRPCAdvertiseAddr string `yaml:"grpc_advertise_addr"` // Agent 连接地址，空则用 GRPCAddr
+	GRPCTLSAddr      string `yaml:"grpc_tls_addr"`
+	TLSCert          string `yaml:"grpc_tls_cert"`
+	TLSKey           string `yaml:"grpc_tls_key"`
+	PSKToken         string `yaml:"psk_token"`
+	StaticDir        string `yaml:"static_dir"`
 }
 
 type VictoriaConfig struct {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { getProbes, getProbeStatus, createProbe, deleteProbe, type ProbeRule } from '../../api/client'
-import { StatusBadge } from '../../components/StatusBadge'
 import type { ProbeResult } from '../../types'
 
 export default function Probes() {
@@ -62,7 +61,6 @@ export default function Probes() {
     }
   }
 
-  // Derived stats
   const upCount = rules.filter((r) => {
     const res = getResult(r.id!)
     return res?.status === 'up'
@@ -82,73 +80,93 @@ export default function Probes() {
   return (
     <div>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="font-headline text-2xl font-bold text-on-surface">探测管理中心</h1>
-          <p className="text-sm text-on-surface-variant mt-1">端口连通性探测与服务可用性监控</p>
+          <h1 className="text-[22px] font-semibold text-[#495057]">探测管理</h1>
+          <p className="text-sm text-[#878a99] mt-1">端口连通性探测与服务可用性监控</p>
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
-          className="bg-gradient-to-br from-primary to-primary-container text-on-primary-container px-6 py-2.5 rounded-lg font-medium shadow-lg shadow-primary/20 flex items-center gap-2 hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
         >
-          <span className="material-symbols-outlined text-lg">add_circle</span>
-          添加新规则
+          <span className="material-symbols-outlined text-[16px]">add</span>
+          添加探测规则
         </button>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-surface-container p-4 sm:p-6 rounded-xl border-l-4 border-primary">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
-            <span className="text-sm text-on-surface-variant">总探测任务数</span>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {/* Total */}
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-[#2ca07a]/15 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[#2ca07a] text-[20px]">account_tree</span>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-[#495057]">{rules.length}</div>
+              <div className="text-[12px] text-[#878a99]">总探测任务</div>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-on-surface">{rules.length}</div>
         </div>
 
-        <div className="bg-surface-container p-4 sm:p-6 rounded-xl border-l-4 border-tertiary">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="material-symbols-outlined text-tertiary text-xl">bolt</span>
-            <span className="text-sm text-on-surface-variant">正常运行</span>
+        {/* Running OK */}
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-[#0ab39c]/15 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[#0ab39c] text-[20px]">check_circle</span>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-[#0ab39c]">{upCount}</div>
+              <div className="text-[12px] text-[#878a99]">正常运行</div>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-tertiary">{upCount}</div>
         </div>
 
-        <div className="bg-surface-container p-4 sm:p-6 rounded-xl border-l-4 border-error">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="material-symbols-outlined text-error text-xl">warning</span>
-            <span className="text-sm text-on-surface-variant">异常告警</span>
+        {/* Alert */}
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-5 border-b-2 border-[#f06548]">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-[#f06548]/15 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[#f06548] text-[20px]">warning</span>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-[#f06548]">{downCount}</div>
+              <div className="text-[12px] text-[#878a99]">异常告警</div>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-error">{downCount}</div>
         </div>
 
-        <div className="bg-surface-container p-4 sm:p-6 rounded-xl border-l-4 border-on-secondary-container">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="material-symbols-outlined text-on-secondary-container text-xl">speed</span>
-            <span className="text-sm text-on-surface-variant">平均响应延迟</span>
+        {/* Avg Latency */}
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-[#f7b84b]/15 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[#f7b84b] text-[20px]">speed</span>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-[#495057]">
+                {(avgLatency ?? 0).toFixed(1)}
+                <span className="text-sm font-normal text-[#878a99] ml-1">ms</span>
+              </div>
+              <div className="text-[12px] text-[#878a99]">平均响应延迟</div>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-on-surface">{(avgLatency ?? 0).toFixed(1)} <span className="text-sm font-normal text-on-surface-variant">ms</span></div>
         </div>
       </div>
 
       {/* Add Form */}
       {showAdd && (
-        <div className="bg-surface-container rounded-xl p-6 mb-8 border border-outline-variant/10">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-1 h-6 bg-primary rounded-full" />
-            <h2 className="font-headline text-xl font-bold text-on-surface">新建探测规则</h2>
-          </div>
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-6 mb-6">
+          <h2 className="text-base font-semibold text-[#495057] mb-4">新建探测规则</h2>
 
           {/* Protocol Selector */}
-          <div className="flex gap-1 mb-4 bg-surface-container-lowest rounded-lg p-1 w-fit">
+          <div className="flex gap-1 mb-4 bg-[#f3f6f9] rounded-[6px] p-1 w-fit">
             {protocolOptions.map((p) => (
               <button
                 key={p}
                 onClick={() => setForm({ ...form, protocol: p })}
-                className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-colors ${
+                className={`px-4 py-1.5 rounded-[4px] text-xs font-bold uppercase transition-colors ${
                   form.protocol === p
-                    ? 'bg-primary text-on-primary shadow-sm'
-                    : 'text-on-surface-variant hover:text-on-surface'
+                    ? 'bg-white text-[#2ca07a] shadow-sm'
+                    : 'text-[#878a99] hover:text-[#495057]'
                 }`}
               >
                 {p}
@@ -156,12 +174,12 @@ export default function Probes() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <input
               placeholder="服务名称"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="bg-surface-container-lowest border-none rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-primary/30 text-on-surface placeholder:text-on-surface-variant outline-none"
+              className="border border-[#e9ebec] rounded-[6px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-1 focus:ring-[#2ca07a]/20 transition-colors"
             />
             {form.protocol === 'tcp' ? (
               <>
@@ -169,13 +187,13 @@ export default function Probes() {
                   placeholder="主机 IP / 域名"
                   value={form.host}
                   onChange={(e) => setForm({ ...form, host: e.target.value })}
-                  className="bg-surface-container-lowest border-none rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-primary/30 text-on-surface placeholder:text-on-surface-variant outline-none"
+                  className="border border-[#e9ebec] rounded-[6px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-1 focus:ring-[#2ca07a]/20 transition-colors"
                 />
                 <input
                   placeholder="端口"
                   value={form.port}
                   onChange={(e) => setForm({ ...form, port: e.target.value })}
-                  className="bg-surface-container-lowest border-none rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-primary/30 text-on-surface placeholder:text-on-surface-variant outline-none"
+                  className="border border-[#e9ebec] rounded-[6px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-1 focus:ring-[#2ca07a]/20 transition-colors"
                 />
               </>
             ) : (
@@ -184,26 +202,26 @@ export default function Probes() {
                   placeholder="URL（如 https://example.com）"
                   value={form.url}
                   onChange={(e) => setForm({ ...form, url: e.target.value })}
-                  className="bg-surface-container-lowest border-none rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-primary/30 text-on-surface placeholder:text-on-surface-variant outline-none"
+                  className="border border-[#e9ebec] rounded-[6px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-1 focus:ring-[#2ca07a]/20 transition-colors"
                 />
                 <input
                   placeholder="期望状态码（默认200）"
                   value={form.expect_status}
                   onChange={(e) => setForm({ ...form, expect_status: e.target.value })}
-                  className="bg-surface-container-lowest border-none rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-primary/30 text-on-surface placeholder:text-on-surface-variant outline-none"
+                  className="border border-[#e9ebec] rounded-[6px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-1 focus:ring-[#2ca07a]/20 transition-colors"
                 />
               </>
             )}
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
-                className="flex-1 bg-gradient-to-br from-primary to-primary-container text-on-primary-container px-4 py-2 rounded-lg text-sm font-medium shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity"
+                className="flex-1 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors"
               >
                 保存
               </button>
               <button
                 onClick={() => setShowAdd(false)}
-                className="px-4 py-2 rounded-lg text-sm text-on-surface-variant bg-surface-container-high hover:bg-surface-container transition-colors"
+                className="px-4 py-2 rounded-[6px] text-sm text-[#878a99] bg-[#f3f6f9] hover:bg-[#e9ebec] transition-colors"
               >
                 取消
               </button>
@@ -212,14 +230,8 @@ export default function Probes() {
         </div>
       )}
 
-      {/* Section Title */}
-      <div className="flex items-center gap-2 mb-6">
-        <div className="w-1 h-6 bg-primary rounded-full" />
-        <h2 className="font-headline text-xl font-bold text-on-surface">探测规则列表</h2>
-      </div>
-
       {/* Probe Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {rules.map((rule) => {
           const result = getResult(rule.id!)
           const isDown = result && result.status !== 'up'
@@ -228,102 +240,100 @@ export default function Probes() {
           return (
             <div
               key={rule.id}
-              className={`bg-surface-container-low rounded-xl p-5 hover:bg-surface-container-high transition-colors group flex flex-col ${
-                isDown ? 'border border-error/20' : ''
+              className={`bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-5 flex flex-col group ${
+                isDown ? 'border border-[#f06548]/40' : ''
               }`}
             >
               {/* Card Header */}
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-medium text-on-surface truncate">{rule.name}</span>
-                <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                      !result ? 'bg-[#adb5bd]' :
+                      result.status === 'up' ? 'bg-[#0ab39c] animate-pulse' : 'bg-[#f06548]'
+                    }`}
+                    style={result?.status === 'up' ? { boxShadow: '0 0 0 3px rgba(10,179,156,0.2)' } :
+                      result ? { boxShadow: '0 0 0 3px rgba(240,101,72,0.2)' } : {}}
+                  />
+                  <span className="font-medium text-[#495057] text-sm truncate">{rule.name}</span>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
                   {result?.ssl_expiry_days != null && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                      result.ssl_expiry_days > 60 ? 'bg-tertiary/20 text-tertiary' :
-                      result.ssl_expiry_days > 30 ? 'bg-warning/20 text-warning' :
-                      'bg-error/20 text-error'
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      result.ssl_expiry_days > 60 ? 'bg-[#0ab39c]/10 text-[#0ab39c]' :
+                      result.ssl_expiry_days > 30 ? 'bg-[#f7b84b]/10 text-[#f7b84b]' :
+                      'bg-[#f06548]/10 text-[#f06548]'
                     }`}>
                       SSL {result.ssl_expiry_days}天
                     </span>
                   )}
                   <button
                     onClick={() => handleDelete(rule.id!)}
-                    className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-error/60 hover:text-error p-1 rounded-lg hover:bg-error/20"
+                    className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-[#878a99] hover:text-[#f06548] p-1 rounded hover:bg-[#f06548]/10"
                   >
-                    <span className="material-symbols-outlined text-base">delete</span>
+                    <span className="material-symbols-outlined text-[14px]">delete</span>
                   </button>
-                  <StatusBadge status={result?.status === 'up' ? 'up' : 'down'} label={result?.status === 'up' ? '正常' : '异常'} />
                 </div>
               </div>
 
               {/* Address Badge */}
               <div className="mb-4">
                 <span
-                  className={`text-xs px-2 py-0.5 rounded font-mono ${
+                  className={`text-[11px] px-2 py-1 rounded font-mono inline-block max-w-full truncate ${
                     isDown
-                      ? 'text-error bg-error/20'
-                      : 'text-primary bg-primary/20'
+                      ? 'bg-[#f06548]/10 text-[#f06548]'
+                      : 'bg-[#495057]/8 text-[#495057]'
                   }`}
+                  style={!isDown ? { backgroundColor: 'rgba(73,80,87,0.08)' } : {}}
                 >
                   {protocol !== 'tcp' && rule.url ? rule.url : `${rule.host}:${rule.port}`}
                 </span>
               </div>
 
-              {/* Inner Stats */}
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div className="bg-surface-container-lowest p-3 rounded-lg">
-                  <div className="text-xs text-on-surface-variant mb-1">响应延迟</div>
-                  <div className="text-sm font-semibold text-on-surface">
-                    {result ? `${(result.latency_ms ?? 0).toFixed(1)} ms` : '-- ms'}
+              {/* Stats */}
+              <div className="flex items-end justify-between mt-auto pt-3 border-t border-[#f3f6f9]">
+                <div>
+                  <div className="text-lg font-bold text-[#495057]">
+                    {result ? `${(result.latency_ms ?? 0).toFixed(1)}` : '--'}
+                    <span className="text-xs font-normal text-[#878a99] ml-1">ms</span>
+                  </div>
+                  <div className="text-[11px] text-[#878a99] mt-0.5">
+                    {result ? (result.status === 'up' ? '运行正常' : result.error || '连接异常') : '等待检测'}
                   </div>
                 </div>
-                <div className="bg-surface-container-lowest p-3 rounded-lg relative group/status">
-                  <div className="text-xs text-on-surface-variant mb-1">状态</div>
-                  <div className={`text-sm font-semibold ${
-                    result?.status === 'up' ? 'text-tertiary' : 'text-error'
-                  }`}>
-                    {result ? (result.status === 'up' ? '正常' : '异常') : '--'}
-                  </div>
-                  {result?.error && (
-                    <div className="absolute left-0 right-0 top-full mt-1 z-10 hidden group-hover/status:block">
-                      <div className="text-xs text-error bg-surface-container-highest rounded-lg px-3 py-2 shadow-xl border border-error/20 break-all">
-                        {result.error}
-                      </div>
-                    </div>
-                  )}
+                {/* Sparkline placeholder */}
+                <div className="w-16 h-8 bg-[#f3f6f9] rounded flex items-end gap-px px-1 overflow-hidden">
+                  {[40, 60, 45, 70, 55, 80, 50].map((h, i) => (
+                    <div
+                      key={i}
+                      className={`flex-1 rounded-sm ${result?.status === 'up' ? 'bg-[#0ab39c]/40' : 'bg-[#f06548]/40'}`}
+                      style={{ height: `${h}%` }}
+                    />
+                  ))}
                 </div>
-              </div>
-
-              {/* Spacer */}
-              <div className="flex-1"></div>
-
-              {/* Details link */}
-              <div className="flex items-center justify-end mt-3">
-                <span className="text-xs text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary">
-                  详情 →
-                </span>
               </div>
             </div>
           )
         })}
 
-        {/* Add Card Placeholder */}
+        {/* Add Placeholder Card */}
         {rules.length > 0 && (
           <button
             onClick={() => setShowAdd(true)}
-            className="border-2 border-dashed border-outline-variant/20 hover:border-primary/40 rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-colors min-h-[200px]"
+            className="border-2 border-dashed border-[#ced4da] hover:border-[#2ca07a] rounded-[10px] p-5 flex flex-col items-center justify-center gap-2 transition-colors min-h-[160px] text-[#878a99] hover:text-[#2ca07a]"
           >
-            <span className="material-symbols-outlined text-3xl text-on-surface-variant/40">add_circle</span>
-            <span className="text-sm text-on-surface-variant/60">添加新规则</span>
+            <span className="material-symbols-outlined text-3xl">add_circle</span>
+            <span className="text-sm font-medium">添加新规则</span>
           </button>
         )}
       </div>
 
       {/* Empty State */}
       {rules.length === 0 && !showAdd && (
-        <div className="text-center py-20">
-          <span className="material-symbols-outlined text-5xl text-on-surface-variant/30 mb-4 block">radar</span>
-          <p className="text-on-surface-variant text-lg mb-2">暂无探测规则</p>
-          <p className="text-on-surface-variant/60 text-sm">点击「添加新规则」开始监控您的服务</p>
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-16 text-center">
+          <span className="material-symbols-outlined text-5xl text-[#ced4da] mb-4 block">radar</span>
+          <p className="text-[#495057] text-base font-medium mb-1">暂无探测规则</p>
+          <p className="text-[#878a99] text-sm">点击「添加探测规则」开始监控您的服务</p>
         </div>
       )}
     </div>

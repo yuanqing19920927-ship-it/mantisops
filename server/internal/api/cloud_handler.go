@@ -41,12 +41,30 @@ func (h *CloudHandler) CreateAccount(c *gin.Context) {
 			Type string            `json:"type" binding:"required"`
 			Data map[string]string `json:"data" binding:"required"`
 		} `json:"credential"`
-		AutoDiscover bool     `json:"auto_discover"`
-		RegionIDs    []string `json:"region_ids"`
+		AutoDiscover    bool     `json:"auto_discover"`
+		RegionIDs       []string `json:"region_ids"`
+		AccessKeyID     string   `json:"access_key_id"`
+		AccessKeySecret string   `json:"access_key_secret"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Build credential from flat AK/SK fields if no structured credential provided
+	if req.Credential == nil && req.CredentialID == 0 && req.AccessKeyID != "" {
+		req.Credential = &struct {
+			Name string            `json:"name" binding:"required"`
+			Type string            `json:"type" binding:"required"`
+			Data map[string]string `json:"data" binding:"required"`
+		}{
+			Name: req.Name,
+			Type: "aliyun_ak",
+			Data: map[string]string{
+				"access_key_id":     req.AccessKeyID,
+				"access_key_secret": req.AccessKeySecret,
+			},
+		}
 	}
 
 	credID := req.CredentialID

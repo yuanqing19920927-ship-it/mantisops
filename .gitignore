@@ -1,11 +1,36 @@
+# Build output
+build/
+server/build/
+opsboard-agent*
+opsboard-server*
+
+# Database
 data/
 *.db
+*.db-shm
+*.db-wal
+
+# Frontend
 node_modules/
 dist/
-opsboard-agent
-opsboard-server
+
+# TLS / secrets
 /opt/opsboard/certs/
 *.pem
 *.key
 *.crt
+.env
+.env.*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE / tools
+.superpowers/
+stitch/
+html/
+
+# Deployment docs with credentials
+docs/deploy-*.md
+docs/superpowers/

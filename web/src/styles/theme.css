@@ -1,34 +1,167 @@
 @import "tailwindcss";
 
-:root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f4f6;
-  --bg-card: #ffffff;
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-  --border: #e5e7eb;
-  --accent: #3b82f6;
-  --success: #10b981;
-  --danger: #ef4444;
-  --warning: #f59e0b;
+@theme {
+  /* Primary — green from HTML mockups */
+  --color-primary: #2ca07a;
+  --color-primary-container: #1f7d5e;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #ffffff;
+  --color-primary-subtle: rgba(44, 160, 122, 0.1);
+
+  /* Surface hierarchy — light */
+  --color-surface-dim: #f3f3f9;
+  --color-surface: #ffffff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f8f9fa;
+  --color-surface-container: #f3f3f9;
+  --color-surface-container-high: #e9ecef;
+  --color-surface-container-highest: #dee2e6;
+  --color-surface-bright: #ffffff;
+  --color-surface-variant: #f8f9fa;
+
+  /* Secondary */
+  --color-secondary: #878a99;
+  --color-secondary-container: #e9ecef;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #495057;
+
+  /* Tertiary (success green) */
+  --color-tertiary: #0ab39c;
+  --color-tertiary-container: rgba(10, 179, 156, 0.1);
+  --color-on-tertiary: #ffffff;
+
+  /* Error */
+  --color-error: #f06548;
+  --color-error-container: rgba(240, 101, 72, 0.1);
+  --color-on-error: #ffffff;
+
+  /* Warning */
+  --color-warning: #f7b84b;
+  --color-warning-container: rgba(247, 184, 75, 0.1);
+
+  /* On-surface */
+  --color-on-surface: #495057;
+  --color-on-surface-variant: #878a99;
+  --color-on-background: #495057;
+
+  /* Outline */
+  --color-outline: #ced4da;
+  --color-outline-variant: #e9ecef;
+
+  /* Info */
+  --color-info: #61bcf7;
+
+  /* Sidebar */
+  --color-sidebar: #212529;
+  --color-sidebar-text: #adb5bd;
+  --color-sidebar-active: #2ca07a;
+
+  /* Fonts — Outfit + Noto Sans SC */
+  --font-headline: "Outfit", "Noto Sans SC", "PingFang SC", system-ui, -apple-system, sans-serif;
+  --font-body: "Outfit", "Noto Sans SC", "PingFang SC", system-ui, -apple-system, sans-serif;
 }
 
-[data-theme="dark"] {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-card: #1e293b;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --border: #334155;
-  --accent: #60a5fa;
-  --success: #34d399;
-  --danger: #f87171;
-  --warning: #fbbf24;
+/* Material Symbols */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  font-size: inherit;
 }
 
+/* Card */
+.card {
+  background: #ffffff;
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(56, 65, 74, 0.15);
+}
+
+/* Glass card — now clean white card */
+.glass-card {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(56, 65, 74, 0.15);
+}
+
+/* Stat icon — circular colored icon */
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background-color: rgba(44, 160, 122, 0.1);
+  color: #2ca07a;
+}
+
+/* Glow dots */
+.glow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.glow-dot-success, .pulse-glow-success {
+  background-color: #0ab39c;
+  box-shadow: 0 0 8px rgba(10, 179, 156, 0.6);
+}
+.glow-dot-danger, .pulse-glow-error {
+  background-color: #f06548;
+  box-shadow: 0 0 8px rgba(240, 101, 72, 0.6);
+}
+.glow-dot-warning {
+  background-color: #f7b84b;
+  box-shadow: 0 0 8px rgba(247, 184, 75, 0.6);
+}
+.pulse-glow-primary {
+  box-shadow: 0 0 8px rgba(44, 160, 122, 0.4);
+}
+
+/* Glow hover for cards */
+.glow-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(44, 160, 122, 0.15);
+  border-color: rgba(44, 160, 122, 0.3);
+}
+
+/* Background grid pattern — very subtle dots for light theme */
+.bg-grid-pattern {
+  background-image: none;
+}
+
+/* Progress */
+.progress-bar-track {
+  background-color: #eff2f7;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 10px; }
+
+/* Focus visible for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Base body */
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  background-color: #f3f3f9;
+  color: #495057;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: "Outfit", "Noto Sans SC", "PingFang SC", system-ui, -apple-system, sans-serif;
 }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Outfit", "Noto Sans SC", "PingFang SC", system-ui, -apple-system, sans-serif;
+  font-weight: 600;
+}
+
+/* Selection */
+::selection {
+  background: rgba(44, 160, 122, 0.2);
+}
+

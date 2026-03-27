@@ -69,9 +69,13 @@ func main() {
 	if registerTimeout <= 0 {
 		registerTimeout = 120
 	}
+	grpcAdvertise := cfg.Server.GRPCAdvertiseAddr
+	if grpcAdvertise == "" {
+		grpcAdvertise = cfg.Server.GRPCAddr
+	}
 	dep := deployer.NewDeployer(
 		managedServerStore, credentialStore, serverStore, hub,
-		cfg.Server.PSKToken, cfg.Server.GRPCAddr, binaryDir, registerTimeout,
+		cfg.Server.PSKToken, grpcAdvertise, binaryDir, registerTimeout,
 	)
 
 	// 9. Probe
@@ -94,7 +98,14 @@ func main() {
 
 	// 12. Aliyun Cloud Collector
 	var metricsProvider api.MetricsProvider
-	if cfg.Aliyun.Enabled {
+	// Start collector if enabled in config OR if cloud accounts exist in DB
+	shouldStartCollector := cfg.Aliyun.Enabled
+	if !shouldStartCollector {
+		if accounts, err := cloudStore.ListAccounts(); err == nil && len(accounts) > 0 {
+			shouldStartCollector = true
+		}
+	}
+	if shouldStartCollector {
 		ac, err := collector.NewAliyunCollector(cfg.Aliyun, vmStore, serverStore, hub, cloudStore, credentialStore)
 		if err != nil {
 			log.Printf("aliyun collector init failed: %v", err)
@@ -110,7 +121,10 @@ func main() {
 		}
 	}
 
-	// 13. gRPC with deployer callback
+	// 13. gRPC with deployer callback — 拒绝空 PSK 启动
+	if cfg.Server.PSKToken == "" {
+		log.Fatalf("FATAL: server.psk_token must be configured (non-empty)")
+	}
 	handler := grpcpkg.NewHandler(serverStore, mc.Handle, dep.NotifyRegistered)
 	psk := grpcpkg.NewPSKInterceptor(cfg.Server.PSKToken)
 	go func() {
@@ -119,7 +133,13 @@ func main() {
 		}
 	}()
 
-	// 14. Auth
+	// 14. Auth — 拒绝空凭证启动
+	if cfg.Auth.Username == "" || cfg.Auth.Password == "" {
+		log.Fatalf("FATAL: auth.username and auth.password must be configured (non-empty)")
+	}
+	if cfg.Auth.JWTSecret == "" {
+		log.Fatalf("FATAL: auth.jwt_secret must be configured (non-empty, recommend 32+ random chars)")
+	}
 	authHandler := api.NewAuthHandler(cfg.Auth.Username, cfg.Auth.Password, cfg.Auth.JWTSecret)
 
 	// 15. Database (RDS) - reads from CloudStore

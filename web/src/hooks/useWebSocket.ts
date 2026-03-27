@@ -32,8 +32,10 @@ export function useWebSocket() {
 
     function connect() {
       if (disposed) return
+      const token = localStorage.getItem('token')
+      if (!token) return // 未登录不连接
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`)
       globalWs = ws
 
       ws.onmessage = (event) => {

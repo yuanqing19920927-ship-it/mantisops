@@ -2,24 +2,42 @@ interface Props {
   percent: number
   label?: string
   showValue?: boolean
+  size?: 'sm' | 'md'
 }
 
 export function ProgressBar({ percent, label, showValue = true }: Props) {
   const clamped = Math.min(100, Math.max(0, percent))
-  const color = clamped >= 80 ? 'var(--danger)' : clamped >= 60 ? 'var(--warning)' : 'var(--success)'
+  const barColor =
+    clamped >= 80
+      ? 'bg-[#f06548]'
+      : clamped >= 60
+      ? 'bg-[#f7b84b]'
+      : 'bg-[#0ab39c]'
+  const textColor =
+    clamped >= 80
+      ? 'text-[#f06548]'
+      : clamped >= 60
+      ? 'text-[#f7b84b]'
+      : 'text-[#0ab39c]'
 
   return (
-    <div className="mb-2">
+    <div>
       {(label || showValue) && (
-        <div className="flex justify-between text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
-          {label && <span>{label}</span>}
-          {showValue && <span style={{ color }}>{clamped.toFixed(1)}%</span>}
+        <div className="flex justify-between mb-1">
+          {label && (
+            <span className="text-[11px] text-[#878a99]">{label}</span>
+          )}
+          {showValue && (
+            <span className={`text-[11px] font-medium ${textColor}`}>
+              {clamped.toFixed(1)}%
+            </span>
+          )}
         </div>
       )}
-      <div className="w-full h-2 rounded-full" style={{ backgroundColor: 'var(--border)' }}>
+      <div className="w-full h-[5px] bg-[#eff2f7] rounded-full overflow-hidden">
         <div
-          className="h-2 rounded-full transition-all duration-500"
-          style={{ width: `${clamped}%`, backgroundColor: color }}
+          className={`h-[5px] ${barColor} rounded-full transition-all duration-500`}
+          style={{ width: `${clamped}%` }}
         />
       </div>
     </div>

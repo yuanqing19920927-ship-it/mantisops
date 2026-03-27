@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <rect width="128" height="128" rx="28" fill="#1a1f2e"/>
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#212a3e" stroke="#2ca07a" stroke-width="2" stroke-opacity="0.3"/>
+  <!-- Monitor frame -->
+  <rect x="20" y="26" width="88" height="58" rx="8" fill="#2d3549" stroke="#2ca07a" stroke-width="2.5" stroke-opacity="0.5"/>
+  <!-- Screen -->
+  <rect x="25" y="31" width="78" height="48" rx="4" fill="#0f1520"/>
+  <!-- Heartbeat line -->
+  <polyline points="32,58 44,58 50,42 56,72 62,48 68,62 74,58 96,58" stroke="#2ca07a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Pulse glow -->
+  <polyline points="32,58 44,58 50,42 56,72 62,48 68,62 74,58 96,58" stroke="#2ca07a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.3" filter="url(#glow2)"/>
+  <!-- Stand -->
+  <path d="M52 88 L76 88 L72 100 L56 100 Z" fill="#2d3549"/>
+  <rect x="46" y="100" width="36" height="4" rx="2" fill="#2d3549"/>
+  <!-- Dot indicators -->
+  <circle cx="38" cy="68" r="3" fill="#0ab39c" opacity="0.9"/>
+  <circle cx="90" cy="46" r="3" fill="#f7b84b" opacity="0.9"/>
+  <circle cx="38" cy="46" r="2" fill="#405189" opacity="0.6"/>
+  <defs>
+    <filter id="glow2" x="20" y="30" width="88" height="54">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+</svg>

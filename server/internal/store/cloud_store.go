@@ -206,12 +206,28 @@ func (s *CloudStore) ConfirmInstances(ids []int) error {
 		}
 
 		if instType == "ecs" {
-			if _, err := tx.Exec(`INSERT INTO servers (host_id, hostname, ip_addresses, status, last_seen)
-				VALUES (?, ?, '', 'unknown', 0)
+			// Parse extra JSON for system info from cloud API
+			var extra string
+			tx.QueryRow(`SELECT COALESCE(extra,'{}') FROM cloud_instances WHERE id=?`, id).Scan(&extra)
+			var info struct {
+				OSName string   `json:"os_name"`
+				CPU    int      `json:"cpu"`
+				Memory int      `json:"memory"` // MB
+				IPs    []string `json:"ips"`
+			}
+			json.Unmarshal([]byte(extra), &info)
+			ipsJSON, _ := json.Marshal(info.IPs)
+
+			if _, err := tx.Exec(`INSERT INTO servers (host_id, hostname, ip_addresses, os, cpu_cores, memory_total, status, last_seen)
+				VALUES (?, ?, ?, ?, ?, ?, 'unknown', 0)
 				ON CONFLICT(host_id) DO UPDATE SET
 					hostname=excluded.hostname,
+					ip_addresses=CASE WHEN excluded.ip_addresses != '[]' AND excluded.ip_addresses != 'null' THEN excluded.ip_addresses ELSE servers.ip_addresses END,
+					os=CASE WHEN excluded.os != '' THEN excluded.os ELSE servers.os END,
+					cpu_cores=CASE WHEN excluded.cpu_cores > 0 THEN excluded.cpu_cores ELSE servers.cpu_cores END,
+					memory_total=CASE WHEN excluded.memory_total > 0 THEN excluded.memory_total ELSE servers.memory_total END,
 					updated_at=CURRENT_TIMESTAMP`,
-				hostID, instName); err != nil {
+				hostID, instName, string(ipsJSON), info.OSName, info.CPU, int64(info.Memory)*1024*1024); err != nil {
 				return err
 			}
 		}
@@ -247,6 +263,48 @@ func (s *CloudStore) LoadMonitoredInstances() (ecs []CloudInstance, rds []CloudI
 		}
 	}
 	return ecs, rds, rows.Err()
+}
+
+// SyncServersFromCloud updates servers table with system info from cloud_instances extra data
+// for all monitored ECS instances of a given account.
+func (s *CloudStore) SyncServersFromCloud(accountID int) error {
+	rows, err := s.db.Query(`SELECT host_id, instance_name, COALESCE(extra,'{}') FROM cloud_instances
+		WHERE cloud_account_id=? AND instance_type='ecs' AND monitored=1`, accountID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var hostID, instName, extra string
+		if err := rows.Scan(&hostID, &instName, &extra); err != nil {
+			return err
+		}
+		var info struct {
+			OSName string   `json:"os_name"`
+			CPU    int      `json:"cpu"`
+			Memory int      `json:"memory"`
+			IPs    []string `json:"ips"`
+		}
+		json.Unmarshal([]byte(extra), &info)
+		ipsJSON, _ := json.Marshal(info.IPs)
+
+		s.db.Exec(`UPDATE servers SET
+			hostname=?,
+			ip_addresses=CASE WHEN ? != '[]' AND ? != 'null' AND ? != '' THEN ? ELSE ip_addresses END,
+			os=CASE WHEN ? != '' THEN ? ELSE os END,
+			cpu_cores=CASE WHEN ? > 0 THEN ? ELSE cpu_cores END,
+			memory_total=CASE WHEN ? > 0 THEN ? ELSE memory_total END,
+			updated_at=CURRENT_TIMESTAMP
+			WHERE host_id=?`,
+			instName,
+			string(ipsJSON), string(ipsJSON), string(ipsJSON), string(ipsJSON),
+			info.OSName, info.OSName,
+			info.CPU, info.CPU,
+			int64(info.Memory)*1024*1024, int64(info.Memory)*1024*1024,
+			hostID)
+	}
+	return rows.Err()
 }
 
 // --------------- helpers ---------------

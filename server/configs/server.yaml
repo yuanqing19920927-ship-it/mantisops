@@ -1,10 +1,11 @@
 server:
   http_addr: "127.0.0.1:3100"
   grpc_addr: "0.0.0.0:3101"
+  grpc_advertise_addr: ""     # Agent 实际连接的地址，如 "192.168.1.100:3101"
   grpc_tls_addr: "0.0.0.0:3102"
   grpc_tls_cert: ""
   grpc_tls_key: ""
-  psk_token: "opsboard-dev-token"
+  psk_token: ""               # 必填！Agent 连接认证令牌
 
 victoria_metrics:
   url: "http://127.0.0.1:8428"
@@ -18,3 +19,18 @@ probe:
 
 websocket:
   ping_interval: 15
+
+auth:
+  username: ""                # 必填！Web 登录用户名
+  password: ""                # 必填！Web 登录密码
+  jwt_secret: ""              # 必填！建议 32+ 字符随机串
+
+aliyun:
+  enabled: false
+  access_key_id: ""           # 或通过环境变量 ALIYUN_ACCESS_KEY_ID
+  access_key_secret: ""       # 或通过环境变量 ALIYUN_ACCESS_KEY_SECRET
+  interval: 60
+  instances: []
+
+encryption_key: ""            # 必填！64 位 hex 字符串，用于加密存储凭据
+                              # 生成方式: openssl rand -hex 32

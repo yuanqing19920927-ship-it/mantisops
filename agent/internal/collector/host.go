@@ -60,6 +60,13 @@ func CollectHostInfo() (*HostInfo, error) {
 
 	ips := getIPs()
 
+	var diskTotal uint64
+	if disks, err := CollectDisks(); err == nil {
+		for _, d := range disks {
+			diskTotal += d.Total
+		}
+	}
+
 	return &HostInfo{
 		Hostname:    hostname,
 		OS:          osName,
@@ -70,6 +77,7 @@ func CollectHostInfo() (*HostInfo, error) {
 		CPUModel:    cpuModel,
 		CPUCores:    runtime.NumCPU(),
 		MemoryTotal: memTotal,
+		DiskTotal:   diskTotal,
 	}, nil
 }
 

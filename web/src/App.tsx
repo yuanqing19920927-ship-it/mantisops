@@ -11,6 +11,7 @@ import Databases from './pages/Databases'
 import DatabaseDetail from './pages/DatabaseDetail'
 import Billing from './pages/Billing'
 import Alerts from './pages/Alerts'
+import Containers from './pages/Containers'
 import Login from './pages/Login'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/databases" element={<Databases />} />
           <Route path="/databases/:id" element={<DatabaseDetail />} />
           <Route path="/billing" element={<Billing />} />
+          <Route path="/containers" element={<Containers />} />
           <Route path="/probes" element={<Probes />} />
           <Route path="/assets" element={<Assets />} />
           <Route path="/alerts" element={<Alerts />} />

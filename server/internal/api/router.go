@@ -134,7 +134,17 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		}
 	}
 
+	// WebSocket（通过 query param token 鉴权）
 	r.GET("/ws", func(c *gin.Context) {
+		token := c.Query("token")
+		if token == "" {
+			c.JSON(401, gin.H{"error": "missing token"})
+			return
+		}
+		if _, err := deps.AuthHandler.ValidateToken(token); err != nil {
+			c.JSON(401, gin.H{"error": "invalid token"})
+			return
+		}
 		deps.Hub.HandleWS(c.Writer, c.Request)
 	})
 

@@ -21,9 +21,10 @@ export const useServerStore = create<ServerState>((set) => ({
     try {
       const data = await getDashboard()
       const update: Partial<ServerState> = { servers: data.servers || [], loading: false }
-      // 预填充缓存的指标快照（阿里云服务器无需等 WebSocket）
+      // 合并指标快照：API 快照作为底层，WebSocket 已推送的更新数据优先保留
       if (data.metrics) {
-        update.metrics = { ...data.metrics }
+        const current = useServerStore.getState().metrics
+        update.metrics = { ...data.metrics, ...current }
       }
       if (data.groups) {
         update.groups = data.groups

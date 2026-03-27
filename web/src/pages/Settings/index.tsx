@@ -1,4 +1,5 @@
 import { useServerStore } from '../../stores/serverStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useEffect, useState, useCallback } from 'react'
 import { StatusBadge } from '../../components/StatusBadge'
 import { timeSince } from '../../utils/format'
@@ -18,9 +19,24 @@ import { INSTALL_STATE_LABELS, SYNC_STATE_LABELS } from '../../types/onboarding'
 
 export default function Settings() {
   const { servers, fetchDashboard } = useServerStore()
+  const { platformName, platformSubtitle, logoUrl, setPlatformName, setPlatformSubtitle, setLogoUrl } = useSettingsStore()
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
   const onlineCount = servers.filter((s) => s.status === 'online').length
+
+  // Platform settings editing
+  const [editName, setEditName] = useState(platformName)
+  const [editSubtitle, setEditSubtitle] = useState(platformSubtitle)
+  const [editLogo, setEditLogo] = useState(logoUrl)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+
+  const handleSaveSettings = () => {
+    setPlatformName(editName.trim() || 'OpsBoard')
+    setPlatformSubtitle(editSubtitle.trim() || '运维监控管理平台')
+    setLogoUrl(editLogo.trim() || '/logo.svg')
+    setSettingsSaved(true)
+    setTimeout(() => setSettingsSaved(false), 2000)
+  }
 
   const [showAddServer, setShowAddServer] = useState(false)
   const [showAddCloud, setShowAddCloud] = useState(false)
@@ -107,7 +123,7 @@ export default function Settings() {
               <span className="material-symbols-outlined text-[#2ca07a] text-[20px]">deployed_code</span>
             </div>
             <div>
-              <div className="text-sm font-semibold text-[#495057]">碧橙数字资产中台</div>
+              <div className="text-sm font-semibold text-[#495057]">{platformName}</div>
               <div className="text-[12px] text-[#878a99] mt-0.5">前端版本 <span className="font-mono text-[#495057]">v1.0.0</span></div>
             </div>
           </div>
@@ -120,6 +136,66 @@ export default function Settings() {
               <div className="text-2xl font-bold text-[#495057]">{servers.length}</div>
               <div className="text-[11px] text-[#878a99] mt-0.5">总代理数</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Platform Settings */}
+      <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
+            <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">tune</span>
+          </div>
+          <h2 className="text-base font-semibold text-[#495057]">平台配置</h2>
+        </div>
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">平台名称</label>
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="OpsBoard"
+              className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">平台副标题</label>
+            <input
+              type="text"
+              value={editSubtitle}
+              onChange={(e) => setEditSubtitle(e.target.value)}
+              placeholder="运维监控管理平台"
+              className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">Logo URL</label>
+            <div className="flex items-center gap-3">
+              <img src={editLogo || '/logo.svg'} alt="Preview" className="w-8 h-8 rounded object-contain bg-[#f8f9fa] p-1 flex-shrink-0" />
+              <input
+                type="text"
+                value={editLogo}
+                onChange={(e) => setEditLogo(e.target.value)}
+                placeholder="/logo.svg"
+                className="flex-1 border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white font-mono"
+              />
+            </div>
+          </div>
+          <div className="sm:col-span-2 flex items-center gap-3">
+            <button
+              onClick={handleSaveSettings}
+              className="flex items-center gap-1.5 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>save</span>
+              保存配置
+            </button>
+            {settingsSaved && (
+              <span className="text-[12px] text-[#0ab39c] flex items-center gap-1">
+                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
+                已保存
+              </span>
+            )}
           </div>
         </div>
       </div>

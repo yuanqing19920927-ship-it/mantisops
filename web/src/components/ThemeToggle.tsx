@@ -5,11 +5,12 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="p-2 rounded-lg transition-colors"
-      style={{ color: 'var(--text-secondary)' }}
-      title={theme === 'dark' ? '切换浅色' : '切换深色'}
+      title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+      className="w-8 h-8 flex items-center justify-center rounded-lg text-[#878a99] hover:text-[#495057] hover:bg-[#eff2f7] transition-colors"
     >
-      {theme === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19'}
+      <span className="material-symbols-outlined text-[18px]">
+        {theme === 'dark' ? 'light_mode' : 'dark_mode'}
+      </span>
     </button>
   )
 }

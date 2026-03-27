@@ -13,14 +13,16 @@
 | 页面 | 路由 | 菜单名称 | 定位 |
 |------|------|---------|------|
 | 登录 | `/login` | — | JWT 登录页面，未认证自动跳转 |
-| 仪表盘 | `/` | 仪表盘 | 全局概览中心，聚合统计 + 服务器状态 + 端口摘要 + 资源排行 |
-| 服务器列表 | `/servers` | 服务器 | 所有服务器详细视图，卡片/表格双模式 |
+| 仪表盘 | `/` | 仪表盘 | 全局总览中心：6 统计卡片 + 告警/RDS/到期摘要 + 分组服务器列表 + 端口摘要 + 资源排行 |
+| 服务器列表 | `/servers` | 服务器 | 所有服务器详细视图，卡片/表格双模式，支持自定义分组 |
 | 服务器详情 | `/servers/:id` | — | 单台服务器：实时概览 + 运行业务 + Docker 容器 + 历史趋势 |
 | 数据库监控 | `/databases` | 数据库 | RDS 实例列表与实时指标 |
 | 数据库详情 | `/databases/:id` | — | 单个数据库实例的实时指标瓦片 + 历史趋势图 |
-| 端口监控 | `/probes` | 端口监控 | TCP 端口存活探测规则管理与实时状态 |
+| 容器管理 | `/containers` | 容器管理 | 全局 Docker 容器聚合列表，跨服务器查看/搜索/筛选 |
+| 端口监控 | `/probes` | 端口监控 | TCP/HTTP/HTTPS 多协议探测规则管理与实时状态，SSL 证书到期徽章 |
 | 本地业务 | `/assets` | 本地业务 | 服务器上部署的项目/服务资产管理 |
 | 告警中心 | `/alerts` | 告警中心 | 告警事件管理 + 告警规则配置 + 通知渠道管理 |
+| 资源到期 | `/billing` | 资源到期 | ECS/RDS/SSL 到期提醒，分类筛选（全部/ECS/RDS/SSL） |
 | 系统信息 | `/settings` | 系统信息 | 系统版本 + 已注册 Agent 列表 |
 
 ---
@@ -46,37 +48,58 @@
 
 ### 3.1 仪表盘 (`/`)
 
-全局概览中心，聚焦聚合数据和快速状态判断。
+全局总览中心，整合告警、资源到期、RDS、服务器分组等信息。
 
 | 模块 | 位置 | 内容 |
 |------|------|------|
-| 全局统计卡片 | 顶部 4 列 | 服务器在线数、运行中容器数、端口探测正常数、平均 CPU 使用率。玻璃卡片 + 左侧彩色边框 + 水印图标 |
-| 服务器状态列表 | 左列(7/12) | 每台服务器一行：图标盒 + 主机名 + IP + CPU/MEM/DISK 进度条 + 网络上下行速率，点击跳转详情 |
-| 端口监控摘要 | 右列上(5/12) | 所有探测规则实时状态：发光状态点 + 服务名 + 地址:端口 + 延迟毫秒数，15 秒自动刷新 |
-| 资源使用排行 | 右列下 | Top 3 服务器，按 CPU 排序，每项显示 CPU 和 MEM 双进度条 |
+| 统计卡片行 | 顶部 6 列 | 服务器在线数、运行中容器数、端口探测正常数、平均 CPU、**告警中（firing_unsilenced）**、**即将到期（30天内）** |
+| 摘要区域 | 统计卡片下方 3 列 | **未处理告警**（最近 5 条未静默 firing 事件）、**数据库状态**（6 个 RDS 迷你 CPU/内存条）、**30天内到期**（ECS/RDS/SSL 到期资源列表） |
+| 服务器状态列表 | 左列(7/12) | **按分组折叠展示**：每组组头（名称 + 在线/总数 + 折叠箭头），组内每台服务器一行（图标盒 + 主机名 + IP + CPU/MEM/DISK 进度条 + 网络速率） |
+| 端口监控摘要 | 右列上(5/12) | 所有探测规则实时状态，15 秒自动刷新 |
+| 资源使用排行 | 右列下 | Top 5 服务器，按 CPU 排序 |
 
-**数据来源：**
-- 服务器和状态：`GET /api/v1/dashboard` + WebSocket 实时推送
-- 端口探测：`GET /api/v1/probes/status`（15 秒轮询）
+**数据来源（并行 5 个 API + WebSocket）：**
+- 服务器 + 分组 + 指标快照：`GET /api/v1/dashboard`（含 `groups` 和 `metrics` 字段）
+- 告警统计：`GET /api/v1/alerts/stats`
+- 告警事件：`GET /api/v1/alerts/events?status=firing&silenced=false&limit=5`
+- RDS 状态：`GET /api/v1/databases`
+- 到期信息：`GET /api/v1/billing`
+- 实时更新：WebSocket（服务器指标 + `alert`/`alert_resolved`/`alert_acked` 消息）
 
 ---
 
 ### 3.2 服务器列表 (`/servers`)
 
-所有服务器的详细视图，支持两种展示模式。
+所有服务器的详细视图，支持两种展示模式和自定义分组管理。
+
+**分组展示（卡片和表格视图均支持）：**
+- 按自定义分组折叠展示，组头：分组名 + (在线/总数) + 折叠箭头
+- 未分组服务器归入"未分组"尾部
+- 默认全部展开
 
 **卡片视图（默认）：**
 - 响应式网格（1-4 列自适应）
-- 玻璃卡片 + 悬停发光效果
-- 每张卡片：图标盒 + 主机名 + IP + OS/CPU/MEM 硬件摘要 + 三条进度条 + 网络速率 + 容器数 + GPU 徽章
+- 每张卡片：图标盒 + 主机名 + 状态标签 + IP + 硬件摘要标签 + 三条进度条 + 网络速率 + 分组选择器
 
 **表格视图：**
-- 紧凑行式：状态灯、主机名（可点击）、IP、系统、CPU%、内存%、磁盘%、流量、容器数
+- 紧凑行式：状态灯、主机名（可点击）、IP、系统、CPU%、内存%、磁盘%、流量、容器数、分组选择
 - CPU/内存/磁盘百分比带颜色编码（绿/黄/红）
+
+**分组管理：**
+- 顶部"管理分组"按钮，点击展开管理面板
+- 面板内：已有分组列表（可删除）+ 新建分组输入框
+- 每个服务器卡片/表格行内有分组下拉选择器，切换即时生效
 
 **底部统计栏：** 服务器总数/在线数、平均 CPU、总流量、运行容器数
 
-**视图切换：** Material Design 分段控件（卡片/表格）
+**视图切换：** 分段控件（卡片/表格）
+
+**分组 API：**
+- `GET /api/v1/groups` — 列出所有分组（含 server_count）
+- `POST /api/v1/groups` — 创建分组
+- `PUT /api/v1/groups/:id` — 更新分组
+- `DELETE /api/v1/groups/:id` — 删除分组（组内服务器解绑）
+- `PUT /api/v1/servers/:id/group` — 设置服务器所属分组
 
 ---
 
@@ -126,19 +149,46 @@ RDS 云数据库实例监控。
 
 ---
 
-### 3.5 端口监控 (`/probes`)
+### 3.5 容器管理 (`/containers`)
 
-TCP 端口存活探测管理。
+全局 Docker 容器聚合列表，跨服务器查看所有容器。
+
+| 功能 | 说明 |
+|------|------|
+| 统计卡片行 | 4 张卡片：总容器数、运行中、已停止、宿主机数 |
+| 筛选 Tab | 全部 / 运行中 / 已停止，每项显示数量 |
+| 搜索 | 按容器名、镜像、服务器名模糊搜索 |
+| 容器表格 | 状态标签、容器名（含 ID）、镜像、宿主机（可点击跳转服务器详情）、CPU%、内存（使用/限制）、端口映射、运行状态 |
+| 空状态 | 无容器时提示开启 Agent Docker 采集 |
+
+**数据来源：**
+- 服务器列表：`GET /api/v1/dashboard`
+- 容器数据：WebSocket 实时推送 `MetricsPayload.containers`，聚合所有服务器
+
+---
+
+### 3.6 端口监控 (`/probes`)
+
+多协议端口探测管理，支持 TCP / HTTP / HTTPS。
 
 | 功能 | 说明 |
 |------|------|
 | 统计卡片行 | 4 张卡片：总探测任务数、正常运行数、异常告警数、平均响应延迟 |
-| 探测卡片网格 | 每张卡片：服务名、地址:端口（代码风格徽章）、发光状态点、响应延迟、状态、sparkline 占位 |
-| 异常卡片 | 红色边框标注，地址徽章用红色主题 |
-| 添加规则 | 渐变按钮展开表单面板：服务名、主机 IP、端口，保存/取消 |
+| 探测卡片网格 | 每张卡片：服务名、地址（TCP 显示 host:port，HTTP/HTTPS 显示 URL）、状态、响应延迟 |
+| **SSL 到期徽章** | HTTPS 探测卡片右上角显示证书剩余天数（>60天绿、30-60天黄、<30天红） |
+| 异常卡片 | 红色边框标注 |
+| **协议选择器** | 创建规则时选择 TCP / HTTP / HTTPS，不同协议显示不同表单字段 |
+| TCP 表单 | 服务名 + 主机 IP + 端口 |
+| HTTP/HTTPS 表单 | 服务名 + URL + 期望状态码（默认 200，0=不检查）+ 关键字匹配（可选） |
 | 删除规则 | 卡片悬停显示删除按钮 |
-| 添加占位卡 | 虚线边框入口 |
 | 自动刷新 | 每 10 秒拉取最新探测结果 |
+
+**HTTP/HTTPS 探测特性：**
+- URL 为唯一来源字段，host/port 由后端自动从 URL 解析
+- HTTP 请求使用严格 TLS 验证（证书无效 → status=down）
+- SSL 证书信息通过独立 TLS 握手采集（InsecureSkipVerify），即使证书过期/自签也能获取到期时间
+- `expect_status=0` 时跳过状态码检查
+- VictoriaMetrics 新指标：`opsboard_probe_http_status`、`opsboard_probe_ssl_days_left`
 
 **数据来源：**
 - 规则：`GET /api/v1/probes`
@@ -147,7 +197,7 @@ TCP 端口存活探测管理。
 
 ---
 
-### 3.6 本地业务 (`/assets`)
+### 3.7 本地业务 (`/assets`)
 
 服务器上部署的项目和服务信息管理。
 
@@ -164,7 +214,7 @@ TCP 端口存活探测管理。
 
 ---
 
-### 3.7 告警中心 (`/alerts`)
+### 3.8 告警中心 (`/alerts`)
 
 告警通知系统的管理中心，包含三个 Tab。
 
@@ -222,7 +272,31 @@ TCP 端口存活探测管理。
 
 ---
 
-### 3.8 系统信息 (`/settings`)
+### 3.9 资源到期 (`/billing`)
+
+ECS / RDS / SSL 证书到期提醒。
+
+| 功能 | 说明 |
+|------|------|
+| 统计卡片行 | 5 张卡片：紧急(30天内)、预警(60天内)、ECS 实例数、RDS 实例数、SSL 证书数 |
+| 紧急告警横幅 | 30 天内到期资源高亮提醒（红色） |
+| **分类筛选 Tab** | 全部 / ECS / RDS / SSL，每项显示数量，点击切换过滤 |
+| 到期表格 | 类型标签（ECS绿/RDS青/SSL黄）、名称（含 ID）、所属账号、规格/引擎、计费方式、到期日期、剩余天数 |
+| 排序 | 有效资源按天数升序在前，已过期按天数降序在后 |
+| 颜色编码 | ≤30天红色、30-60天黄色、>60天绿色、已过期红色负数 |
+
+**SSL 证书数据来源：**
+- 阿里云 CAS API（`ListUserCertificateOrder`），查询 CPACK + CERT 两种类型
+- 按域名+到期日去重
+- 过期超过 90 天的自动过滤不展示
+- 与 ECS/RDS 一起在 BillingHandler 每小时缓存刷新
+
+**数据来源：**
+- `GET /api/v1/billing` — 返回 ECS + RDS + SSL 统一列表
+
+---
+
+### 3.10 系统信息 (`/settings`)
 
 系统版本和 Agent 管理。
 
@@ -235,15 +309,14 @@ TCP 端口存活探测管理。
 
 ## 四、布局与导航
 
-### 顶部导航栏（固定）
+### 顶部导航栏（固定，响应式 left-0 md:left-[250px]）
 
 | 元素 | 位置 | 功能 |
 |------|------|------|
 | 汉堡菜单 | 左（移动端） | 切换侧边栏 |
-| OpsBoard Logo | 左 | 渐变文字 |
+| 搜索框 | 左（桌面端） | 搜索服务器名/IP/host_id，下拉结果可点击跳转 |
 | 刷新按钮 | 右 | sync 图标 |
-| 通知铃铛 | 右 | NotificationBell 组件：红色徽章显示 firing 数，点击下拉显示最近 10 条告警，"查看全部"跳转 /alerts |
-| 主题切换 | 右 | 太阳/月亮图标，点击切换深色/浅色 |
+| 通知铃铛 | 右 | NotificationBell 组件：红色徽章显示 firing_unsilenced 数，点击下拉显示最近 10 条告警，"查看全部"跳转 /alerts |
 | 用户菜单 | 右 | 头像 + 用户名，下拉：用户信息 + 退出登录 |
 
 ### 侧边栏（固定，移动端可收起）
@@ -253,12 +326,14 @@ TCP 端口存活探测管理。
 | 仪表盘 | dashboard | `/` |
 | 服务器 | dns | `/servers` |
 | 数据库 | database | `/databases` |
+| 容器管理 | deployed_code | `/containers` |
 | 端口监控 | sensors | `/probes` |
 | 本地业务 | inventory_2 | `/assets` |
 | 告警中心 | notifications_active | `/alerts` |
+| 资源到期 | event_upcoming | `/billing` |
 | 系统信息 | settings | `/settings` |
 
-激活项样式：蓝色背景 + 蓝色文字 + 发光阴影
+激活项样式：绿色文字高亮
 
 ---
 
@@ -268,11 +343,11 @@ TCP 端口存活探测管理。
 |------|------|------|
 | ProgressBar | `components/ProgressBar.tsx` | 进度条，色调分层（<60% 绿、<80% 黄、>=80% 红），支持 sm/md 尺寸 |
 | StatusBadge | `components/StatusBadge.tsx` | 发光脉冲状态指示器，支持 online/offline/up/down + 文字标签 |
-| ServerCard | `components/ServerCard.tsx` | 服务器玻璃卡片，悬停发光，含硬件信息、进度条、网络速率、容器数、GPU 徽章 |
+| ServerCard | `components/ServerCard.tsx` | 服务器卡片，含硬件标签、进度条、网络速率、容器数、GPU 徽章、分组选择器 |
 | HistoryChart | `components/HistoryChart.tsx` | 历史趋势图表，查询 VictoriaMetrics，支持多线叠加、AbortController 竞态处理、三态 UI、自适应精度 |
 | ThemeToggle | `components/ThemeToggle.tsx` | 深色/浅色分段控件 |
 | NotificationBell | `components/NotificationBell.tsx` | 顶栏告警铃铛：红色徽章 + 下拉面板 + 新告警脉冲动画 |
-| Sidebar | `components/Layout/Sidebar.tsx` | 左侧导航栏，7 个导航项，移动端可收起 |
+| Sidebar | `components/Layout/Sidebar.tsx` | 左侧导航栏（深色），9 个导航项，移动端可收起 |
 | MainLayout | `components/Layout/MainLayout.tsx` | 页面骨架：顶栏（Logo + 刷新 + 通知铃铛 + 主题切换 + 用户菜单）+ 侧边栏 + 内容区 |
 
 ---
@@ -281,7 +356,7 @@ TCP 端口存活探测管理。
 
 | 机制 | 说明 |
 |------|------|
-| WebSocket | 全局单连接（MainLayout 层），`/ws` 端点，自动断线 3 秒重连，引用计数管理 |
+| WebSocket | 全局单连接（MainLayout 层），`/ws?token=<jwt>` 端点（鉴权），自动断线 3 秒重连，未登录不连接 |
 | 消息格式 | `{"type": "metrics", "host_id": "xxx", "data": MetricsPayload}` |
 | 告警消息 | `{"type": "alert", "data": AlertEvent}`、`{"type": "alert_resolved", "data": {"id": N}}`、`{"type": "alert_acked", "data": {"id": N, "acked_by": "admin"}}` |
 | 状态管理 | Zustand serverStore（服务器/指标）+ alertStore（告警事件/统计） |
@@ -315,7 +390,20 @@ TCP 端口存活探测管理。
 
 ---
 
-## 八、架构
+## 八、安全
+
+| 层面 | 机制 |
+|------|------|
+| REST API | JWT Bearer token 鉴权（`Authorization: Bearer <token>`），所有 `/api/v1/*` 路由受 JWTMiddleware 保护 |
+| WebSocket | 连接时通过 query param `?token=<jwt>` 鉴权，服务端校验后才允许 upgrade |
+| gRPC Agent | PSK（Pre-Shared Key）拦截器，Agent 连接时携带 `Authorization: Bearer <psk_token>` |
+| 启动校验 | 服务启动时校验 auth.username、auth.password、auth.jwt_secret、server.psk_token 均非空，空值拒绝启动 |
+| 配置文件 | 仓库中 `configs/server.yaml` 为空值模板，实际密钥只存在于部署服务器的配置中，不入版本控制 |
+| Nginx | `/vm/api/v1/query_range` 仅允许 GET 请求（`limit_except GET { deny all; }`），限制 VictoriaMetrics 访问范围 |
+
+---
+
+## 九、架构
 
 ```
 浏览器 → Nginx (:3080)
@@ -327,7 +415,7 @@ TCP 端口存活探测管理。
 
 ---
 
-## 九、当前接入服务器
+## 十、当前接入服务器
 
 | 服务器 | Host ID | IP | CPU | 内存 | 磁盘 | 特性 |
 |--------|---------|-----|-----|------|------|------|

@@ -58,7 +58,7 @@ func NewAliyunCollector(cfg config.AliyunConfig, vm *store.VictoriaStore, ss *st
 		cfg.Interval = 60
 	}
 
-	// 凭证：环境变量优先
+	// 凭证：环境变量 > 配置文件 > 数据库云账号凭据
 	akID := os.Getenv("ALIYUN_ACCESS_KEY_ID")
 	if akID == "" {
 		akID = cfg.AccessKeyID
@@ -66,6 +66,27 @@ func NewAliyunCollector(cfg config.AliyunConfig, vm *store.VictoriaStore, ss *st
 	akSecret := os.Getenv("ALIYUN_ACCESS_KEY_SECRET")
 	if akSecret == "" {
 		akSecret = cfg.AccessKeySecret
+	}
+	// Fallback: load from first cloud account credential in DB
+	if (akID == "" || akSecret == "") && cloudStore != nil && credStore != nil {
+		accounts, err := cloudStore.ListAccounts()
+		if err == nil {
+			for _, acc := range accounts {
+				cred, err := credStore.Get(acc.CredentialID)
+				if err == nil && cred.Data != nil {
+					if v := cred.Data["access_key_id"]; v != "" {
+						akID = v
+					}
+					if v := cred.Data["access_key_secret"]; v != "" {
+						akSecret = v
+					}
+					if akID != "" && akSecret != "" {
+						log.Printf("[aliyun] loaded AK from cloud account %q (id=%d)", acc.Name, acc.ID)
+						break
+					}
+				}
+			}
+		}
 	}
 	if akID == "" || akSecret == "" {
 		return nil, fmt.Errorf("aliyun access key not configured")
@@ -96,6 +117,24 @@ func NewAliyunCollector(cfg config.AliyunConfig, vm *store.VictoriaStore, ss *st
 	}
 	// RDS 使用第一个 region 的 CMS 客户端（CloudMonitor 不区分 region）
 	if len(cfg.RDS) > 0 && len(regions) == 0 {
+		regions["cn-hangzhou"] = true
+	}
+	// Also load regions from DB instances
+	if cloudStore != nil {
+		ecsInsts, rdsInsts, err := cloudStore.LoadMonitoredInstances()
+		if err == nil {
+			for _, e := range ecsInsts {
+				if e.RegionID != "" {
+					regions[e.RegionID] = true
+				}
+			}
+			if len(rdsInsts) > 0 && len(regions) == 0 {
+				regions["cn-hangzhou"] = true
+			}
+		}
+	}
+	// Ensure at least one region for DB-only setups
+	if len(regions) == 0 {
 		regions["cn-hangzhou"] = true
 	}
 
@@ -314,89 +353,120 @@ func (ac *AliyunCollector) loop() {
 
 // registerInstances 调用 ECS API 获取实例信息并注册到 ServerStore
 func (ac *AliyunCollector) registerInstances() error {
-	for _, inst := range ac.cfg.Instances {
-		if inst.InstanceID == "" {
-			continue
-		}
-
-		ecsClient, ok := ac.ecsClients[inst.RegionID]
-		if !ok {
-			log.Printf("[aliyun] no ecs client for region %s", inst.RegionID)
-			continue
-		}
-
-		req := &ecs.DescribeInstancesRequest{
-			RegionId:    tea.String(inst.RegionID),
-			InstanceIds: tea.String(fmt.Sprintf(`["%s"]`, inst.InstanceID)),
-		}
-
-		resp, err := ecsClient.DescribeInstances(req)
-		if err != nil {
-			return fmt.Errorf("describe instance %s: %w", inst.InstanceID, err)
-		}
-
-		instances := resp.Body.Instances.Instance
-		if len(instances) == 0 {
-			return fmt.Errorf("instance %s not found in region %s", inst.InstanceID, inst.RegionID)
-		}
-
-		ecsInst := instances[0]
-
-		// 收集 IP 地址
-		var ips []string
-		if ecsInst.PublicIpAddress != nil && ecsInst.PublicIpAddress.IpAddress != nil {
-			for _, ip := range ecsInst.PublicIpAddress.IpAddress {
-				ips = append(ips, tea.StringValue(ip))
-			}
-		}
-		if ecsInst.EipAddress != nil && ecsInst.EipAddress.IpAddress != nil {
-			ips = append(ips, tea.StringValue(ecsInst.EipAddress.IpAddress))
-		}
-		if ecsInst.VpcAttributes != nil && ecsInst.VpcAttributes.PrivateIpAddress != nil {
-			for _, ip := range ecsInst.VpcAttributes.PrivateIpAddress.IpAddress {
-				ips = append(ips, tea.StringValue(ip))
-			}
-		}
-
-		// 内存：ECS 返回 MB，转 bytes
-		memoryMB := int64(tea.Int32Value(ecsInst.Memory))
-		memoryBytes := memoryMB * 1024 * 1024
-		ac.memoryCache[inst.InstanceID] = memoryBytes
-
-		// 解析启动时间
-		var bootTime int64
-		if ecsInst.StartTime != nil {
-			if t, err := time.Parse("2006-01-02T15:04Z", tea.StringValue(ecsInst.StartTime)); err == nil {
-				bootTime = t.Unix()
-			}
-		}
-
-		hostname := tea.StringValue(ecsInst.InstanceName)
-		if hostname == "" {
-			hostname = tea.StringValue(ecsInst.HostName)
-		}
-
-		srv := &model.Server{
-			HostID:       inst.HostID,
-			Hostname:     hostname,
-			IPAddresses:  store.IPListToJSON(ips),
-			OS:           tea.StringValue(ecsInst.OSName),
-			Kernel:       "",
-			Arch:         "x86_64",
-			AgentVersion: "cloud-api/1.0",
-			CPUCores:     int(tea.Int32Value(ecsInst.Cpu)),
-			CPUModel:     tea.StringValue(ecsInst.InstanceType),
-			MemoryTotal:  memoryBytes,
-			BootTime:     bootTime,
-		}
-
-		if err := ac.serverStore.Upsert(srv); err != nil {
-			return fmt.Errorf("upsert server %s: %w", inst.HostID, err)
-		}
-
-		log.Printf("[aliyun] registered: %s (%s) cpu=%d mem=%dMB",
-			hostname, inst.InstanceID, srv.CPUCores, memoryMB)
+	// Collect all ECS targets: config file + database
+	type target struct {
+		InstanceID string
+		HostID     string
+		RegionID   string
 	}
+	var targets []target
+
+	for _, inst := range ac.cfg.Instances {
+		if inst.InstanceID != "" {
+			targets = append(targets, target{inst.InstanceID, inst.HostID, inst.RegionID})
+		}
+	}
+	if ac.cloudStore != nil {
+		ecsInsts, _, err := ac.cloudStore.LoadMonitoredInstances()
+		if err == nil {
+			for _, e := range ecsInsts {
+				targets = append(targets, target{e.InstanceID, e.HostID, e.RegionID})
+			}
+		}
+	}
+
+	// Deduplicate by instanceID
+	seen := make(map[string]bool)
+	for _, t := range targets {
+		if seen[t.InstanceID] {
+			continue
+		}
+		seen[t.InstanceID] = true
+
+		if err := ac.registerOneInstance(t.InstanceID, t.HostID, t.RegionID); err != nil {
+			log.Printf("[aliyun] register %s failed: %v", t.InstanceID, err)
+			continue
+		}
+	}
+	return nil
+}
+
+// registerOneInstance registers a single ECS instance by calling DescribeInstances API.
+func (ac *AliyunCollector) registerOneInstance(instanceID, hostID, regionID string) error {
+	ecsClient, ok := ac.ecsClients[regionID]
+	if !ok {
+		return fmt.Errorf("no ecs client for region %s", regionID)
+	}
+
+	resp, err := ecsClient.DescribeInstances(&ecs.DescribeInstancesRequest{
+		RegionId:    tea.String(regionID),
+		InstanceIds: tea.String(fmt.Sprintf(`["%s"]`, instanceID)),
+	})
+	if err != nil {
+		return fmt.Errorf("describe instance %s: %w", instanceID, err)
+	}
+
+	instances := resp.Body.Instances.Instance
+	if len(instances) == 0 {
+		return fmt.Errorf("instance %s not found in region %s", instanceID, regionID)
+	}
+
+	ecsInst := instances[0]
+
+	// 收集 IP 地址
+	var ips []string
+	if ecsInst.PublicIpAddress != nil && ecsInst.PublicIpAddress.IpAddress != nil {
+		for _, ip := range ecsInst.PublicIpAddress.IpAddress {
+			ips = append(ips, tea.StringValue(ip))
+		}
+	}
+	if ecsInst.EipAddress != nil && ecsInst.EipAddress.IpAddress != nil {
+		ips = append(ips, tea.StringValue(ecsInst.EipAddress.IpAddress))
+	}
+	if ecsInst.VpcAttributes != nil && ecsInst.VpcAttributes.PrivateIpAddress != nil {
+		for _, ip := range ecsInst.VpcAttributes.PrivateIpAddress.IpAddress {
+			ips = append(ips, tea.StringValue(ip))
+		}
+	}
+
+	// 内存：ECS 返回 MB，转 bytes
+	memoryMB := int64(tea.Int32Value(ecsInst.Memory))
+	memoryBytes := memoryMB * 1024 * 1024
+	ac.memoryCache[instanceID] = memoryBytes
+
+	// 解析启动时间
+	var bootTime int64
+	if ecsInst.StartTime != nil {
+		if t, err := time.Parse("2006-01-02T15:04Z", tea.StringValue(ecsInst.StartTime)); err == nil {
+			bootTime = t.Unix()
+		}
+	}
+
+	hostname := tea.StringValue(ecsInst.InstanceName)
+	if hostname == "" {
+		hostname = tea.StringValue(ecsInst.HostName)
+	}
+
+	srv := &model.Server{
+		HostID:       hostID,
+		Hostname:     hostname,
+		IPAddresses:  store.IPListToJSON(ips),
+		OS:           tea.StringValue(ecsInst.OSName),
+		Kernel:       "",
+		Arch:         "x86_64",
+		AgentVersion: "cloud-api/1.0",
+		CPUCores:     int(tea.Int32Value(ecsInst.Cpu)),
+		CPUModel:     tea.StringValue(ecsInst.InstanceType),
+		MemoryTotal:  memoryBytes,
+		BootTime:     bootTime,
+	}
+
+	if err := ac.serverStore.Upsert(srv); err != nil {
+		return fmt.Errorf("upsert server %s: %w", hostID, err)
+	}
+
+	log.Printf("[aliyun] registered: %s (%s) cpu=%d mem=%dMB",
+		hostname, instanceID, srv.CPUCores, memoryMB)
 	return nil
 }
 
