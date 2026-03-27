@@ -9,6 +9,7 @@ import (
 	"opsboard/server/internal/api"
 	"opsboard/server/internal/collector"
 	"opsboard/server/internal/config"
+	"opsboard/server/internal/crypto"
 	grpcpkg "opsboard/server/internal/grpc"
 	"opsboard/server/internal/probe"
 	"opsboard/server/internal/store"
@@ -61,13 +62,23 @@ func main() {
 	assetStore := store.NewAssetStore(db)
 	assetHandler := api.NewAssetHandler(assetStore)
 
+	// Cloud stores (for DB-based instance management)
+	cloudStore := store.NewCloudStore(db)
+	var credStore *store.CredentialStore
+	if masterKey, err := crypto.LoadKey(cfg.EncryptionKey); err == nil {
+		credStore = store.NewCredentialStore(db, masterKey)
+	} else {
+		log.Printf("encryption key not available, credential store disabled: %v", err)
+	}
+
 	// Aliyun Cloud Collector
 	var metricsProvider api.MetricsProvider
 	if cfg.Aliyun.Enabled {
-		ac, err := collector.NewAliyunCollector(cfg.Aliyun, vmStore, serverStore, hub)
+		ac, err := collector.NewAliyunCollector(cfg.Aliyun, vmStore, serverStore, hub, cloudStore, credStore)
 		if err != nil {
 			log.Printf("aliyun collector init failed: %v", err)
 		} else {
+			ac.MigrateFromConfig()
 			ac.Start()
 			defer ac.Stop()
 			metricsProvider = ac
