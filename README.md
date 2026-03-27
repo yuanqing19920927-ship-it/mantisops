@@ -1,6 +1,6 @@
-# OpsBoard
+# MantisOps
 
-轻量级服务器监控与运维面板，支持 Agent 自建服务器和阿里云 ECS/RDS 云资源统一监控。
+轻量级智能运维平台 — 服务器监控、云资源管理、资产台账，未来集成 AI 日志分析与智能运维。
 
 ![License](https://img.shields.io/badge/license-BSL--1.1-blue)
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
