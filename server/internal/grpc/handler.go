@@ -5,9 +5,9 @@ import (
 	"log"
 	"time"
 
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/store"
-	pb "opsboard/server/proto/gen"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
+	pb "mantisops/server/proto/gen"
 )
 
 type Handler struct {

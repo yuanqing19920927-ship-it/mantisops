@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
 )
 
 type Prober struct {
@@ -112,17 +112,17 @@ func (p *Prober) probeOne(rule model.ProbeRule) {
 		statusVal = 1
 	}
 	lines := []string{
-		fmt.Sprintf(`opsboard_probe_status{probe_id="%d",name="%s",target_host="%s",port="%d"} %d`,
+		fmt.Sprintf(`mantisops_probe_status{probe_id="%d",name="%s",target_host="%s",port="%d"} %d`,
 			rule.ID, rule.Name, result.Host, result.Port, statusVal),
-		fmt.Sprintf(`opsboard_probe_latency_ms{probe_id="%d",name="%s",target_host="%s",port="%d"} %f`,
+		fmt.Sprintf(`mantisops_probe_latency_ms{probe_id="%d",name="%s",target_host="%s",port="%d"} %f`,
 			rule.ID, rule.Name, result.Host, result.Port, result.LatencyMs),
 	}
 	if result.HttpStatus > 0 {
-		lines = append(lines, fmt.Sprintf(`opsboard_probe_http_status{probe_id="%d",name="%s",target_host="%s"} %d`,
+		lines = append(lines, fmt.Sprintf(`mantisops_probe_http_status{probe_id="%d",name="%s",target_host="%s"} %d`,
 			rule.ID, rule.Name, result.Host, result.HttpStatus))
 	}
 	if result.SSLExpiryDays != nil {
-		lines = append(lines, fmt.Sprintf(`opsboard_probe_ssl_days_left{probe_id="%d",name="%s",target_host="%s"} %d`,
+		lines = append(lines, fmt.Sprintf(`mantisops_probe_ssl_days_left{probe_id="%d",name="%s",target_host="%s"} %d`,
 			rule.ID, rule.Name, result.Host, *result.SSLExpiryDays))
 	}
 	if err := p.vmStore.WriteMetrics(lines); err != nil {

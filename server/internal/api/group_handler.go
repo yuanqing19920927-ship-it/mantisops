@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
 )
 
 type GroupHandler struct {

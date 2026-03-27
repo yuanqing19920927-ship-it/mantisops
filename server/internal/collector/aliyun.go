@@ -15,11 +15,11 @@ import (
 	cms "github.com/alibabacloud-go/cms-20190101/v2/client"
 	"github.com/alibabacloud-go/tea/tea"
 
-	"opsboard/server/internal/config"
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
-	pb "opsboard/server/proto/gen"
+	"mantisops/server/internal/config"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
+	pb "mantisops/server/proto/gen"
 )
 
 // ECSTarget 表示一个需要监控的 ECS 实例
@@ -577,19 +577,19 @@ func (ac *AliyunCollector) collectRegion(cmsClient *cms.Client, instances []conf
 		// CPU
 		if cpuPct, ok := data["CPUUtilization"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_cpu_usage_percent{host_id="%s",host="%s"} %f`, hostID, host, cpuPct),
+				fmt.Sprintf(`mantisops_cpu_usage_percent{host_id="%s",host="%s"} %f`, hostID, host, cpuPct),
 			)
 		}
 
 		// Load
 		if v, ok := data["load_1m"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_cpu_load1{host_id="%s",host="%s"} %f`, hostID, host, v),
+				fmt.Sprintf(`mantisops_cpu_load1{host_id="%s",host="%s"} %f`, hostID, host, v),
 			)
 		}
 		if v, ok := data["load_5m"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_cpu_load5{host_id="%s",host="%s"} %f`, hostID, host, v),
+				fmt.Sprintf(`mantisops_cpu_load5{host_id="%s",host="%s"} %f`, hostID, host, v),
 			)
 		}
 
@@ -598,16 +598,16 @@ func (ac *AliyunCollector) collectRegion(cmsClient *cms.Client, instances []conf
 		if memPct, ok := data["memory_usedutilization"]; ok {
 			memUsed := int64(memPct * float64(memoryTotal) / 100)
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_memory_usage_percent{host_id="%s",host="%s"} %f`, hostID, host, memPct),
-				fmt.Sprintf(`opsboard_memory_used_bytes{host_id="%s",host="%s"} %d`, hostID, host, memUsed),
-				fmt.Sprintf(`opsboard_memory_total_bytes{host_id="%s",host="%s"} %d`, hostID, host, memoryTotal),
+				fmt.Sprintf(`mantisops_memory_usage_percent{host_id="%s",host="%s"} %f`, hostID, host, memPct),
+				fmt.Sprintf(`mantisops_memory_used_bytes{host_id="%s",host="%s"} %d`, hostID, host, memUsed),
+				fmt.Sprintf(`mantisops_memory_total_bytes{host_id="%s",host="%s"} %d`, hostID, host, memoryTotal),
 			)
 		}
 
 		// Disk
 		if diskPct, ok := data["diskusage_utilization"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_disk_usage_percent{host_id="%s",host="%s",mount="/"} %f`, hostID, host, diskPct),
+				fmt.Sprintf(`mantisops_disk_usage_percent{host_id="%s",host="%s",mount="/"} %f`, hostID, host, diskPct),
 			)
 		}
 
@@ -615,35 +615,35 @@ func (ac *AliyunCollector) collectRegion(cmsClient *cms.Client, instances []conf
 		// 公网
 		if rxBits, ok := data["InternetInRate"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_network_rx_bytes_per_sec{host_id="%s",host="%s",iface="internet"} %f`, hostID, host, rxBits/8),
+				fmt.Sprintf(`mantisops_network_rx_bytes_per_sec{host_id="%s",host="%s",iface="internet"} %f`, hostID, host, rxBits/8),
 			)
 		}
 		if txBits, ok := data["InternetOutRate"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_network_tx_bytes_per_sec{host_id="%s",host="%s",iface="internet"} %f`, hostID, host, txBits/8),
+				fmt.Sprintf(`mantisops_network_tx_bytes_per_sec{host_id="%s",host="%s",iface="internet"} %f`, hostID, host, txBits/8),
 			)
 		}
 		// 内网
 		if rxBits, ok := data["IntranetInRate"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_network_rx_bytes_per_sec{host_id="%s",host="%s",iface="intranet"} %f`, hostID, host, rxBits/8),
+				fmt.Sprintf(`mantisops_network_rx_bytes_per_sec{host_id="%s",host="%s",iface="intranet"} %f`, hostID, host, rxBits/8),
 			)
 		}
 		if txBits, ok := data["IntranetOutRate"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_network_tx_bytes_per_sec{host_id="%s",host="%s",iface="intranet"} %f`, hostID, host, txBits/8),
+				fmt.Sprintf(`mantisops_network_tx_bytes_per_sec{host_id="%s",host="%s",iface="intranet"} %f`, hostID, host, txBits/8),
 			)
 		}
 
 		// Disk IO
 		if readBPS, ok := data["DiskReadBPS"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_disk_read_bytes_per_sec{host_id="%s",host="%s",mount="/"} %f`, hostID, host, readBPS),
+				fmt.Sprintf(`mantisops_disk_read_bytes_per_sec{host_id="%s",host="%s",mount="/"} %f`, hostID, host, readBPS),
 			)
 		}
 		if writeBPS, ok := data["DiskWriteBPS"]; ok {
 			lines = append(lines,
-				fmt.Sprintf(`opsboard_disk_write_bytes_per_sec{host_id="%s",host="%s",mount="/"} %f`, hostID, host, writeBPS),
+				fmt.Sprintf(`mantisops_disk_write_bytes_per_sec{host_id="%s",host="%s",mount="/"} %f`, hostID, host, writeBPS),
 			)
 		}
 
@@ -834,34 +834,34 @@ func (ac *AliyunCollector) collectRDS(cmsClient *cms.Client) {
 		var lines []string
 
 		if v, ok := data["CpuUsage"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_cpu_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_cpu_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["MemoryUsage"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_memory_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_memory_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["DiskUsage"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_disk_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_disk_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["IOPSUsage"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_iops_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_iops_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["ConnectionUsage"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_connection_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_connection_usage{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["MySQL_QPS"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_qps{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_qps{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["MySQL_TPS"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_tps{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_tps{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["MySQL_NetworkInNew"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_network_in_bytes{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_network_in_bytes{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["MySQL_NetworkOutNew"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_network_out_bytes{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_network_out_bytes{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 		if v, ok := data["MySQL_ActiveSessions"]; ok {
-			lines = append(lines, fmt.Sprintf(`opsboard_rds_active_sessions{host_id="%s",host="%s"} %f`, hostID, host, v))
+			lines = append(lines, fmt.Sprintf(`mantisops_rds_active_sessions{host_id="%s",host="%s"} %f`, hostID, host, v))
 		}
 
 		if len(lines) > 0 {

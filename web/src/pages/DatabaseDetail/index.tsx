@@ -129,9 +129,9 @@ export default function DatabaseDetail() {
         <HistoryChart
           title="CPU / 内存 / 磁盘 使用率"
           queries={[
-            { query: `opsboard_rds_cpu_usage{host_id="${id}"}`, label: 'CPU', color: '#a4c9ff' },
-            { query: `opsboard_rds_memory_usage{host_id="${id}"}`, label: '内存', color: '#4edea3' },
-            { query: `opsboard_rds_disk_usage{host_id="${id}"}`, label: '磁盘', color: '#fbbf24' },
+            { query: `mantisops_rds_cpu_usage{host_id="${id}"}`, label: 'CPU', color: '#a4c9ff' },
+            { query: `mantisops_rds_memory_usage{host_id="${id}"}`, label: '内存', color: '#4edea3' },
+            { query: `mantisops_rds_disk_usage{host_id="${id}"}`, label: '磁盘', color: '#fbbf24' },
           ]}
           start={start}
           end={now}
@@ -141,8 +141,8 @@ export default function DatabaseDetail() {
         <HistoryChart
           title="IOPS / 连接数 使用率"
           queries={[
-            { query: `opsboard_rds_iops_usage{host_id="${id}"}`, label: 'IOPS', color: '#c084fc' },
-            { query: `opsboard_rds_connection_usage{host_id="${id}"}`, label: '连接数', color: '#67e8f9' },
+            { query: `mantisops_rds_iops_usage{host_id="${id}"}`, label: 'IOPS', color: '#c084fc' },
+            { query: `mantisops_rds_connection_usage{host_id="${id}"}`, label: '连接数', color: '#67e8f9' },
           ]}
           start={start}
           end={now}
@@ -154,8 +154,8 @@ export default function DatabaseDetail() {
             <HistoryChart
               title="QPS / TPS"
               queries={[
-                { query: `opsboard_rds_qps{host_id="${id}"}`, label: 'QPS', color: '#a4c9ff' },
-                { query: `opsboard_rds_tps{host_id="${id}"}`, label: 'TPS', color: '#4edea3' },
+                { query: `mantisops_rds_qps{host_id="${id}"}`, label: 'QPS', color: '#a4c9ff' },
+                { query: `mantisops_rds_tps{host_id="${id}"}`, label: 'TPS', color: '#4edea3' },
               ]}
               start={start}
               end={now}
@@ -164,8 +164,8 @@ export default function DatabaseDetail() {
             <HistoryChart
               title="网络流量"
               queries={[
-                { query: `opsboard_rds_network_in_bytes{host_id="${id}"}`, label: '入站', color: '#a4c9ff' },
-                { query: `opsboard_rds_network_out_bytes{host_id="${id}"}`, label: '出站', color: '#fb923c' },
+                { query: `mantisops_rds_network_in_bytes{host_id="${id}"}`, label: '入站', color: '#a4c9ff' },
+                { query: `mantisops_rds_network_out_bytes{host_id="${id}"}`, label: '出站', color: '#fb923c' },
               ]}
               start={start}
               end={now}

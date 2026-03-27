@@ -61,10 +61,10 @@ VictoriaMetrics(:8428) → 时序数据存储
 
 ```bash
 docker run -d \
-  --name opsboard-vm \
+  --name mantisops-vm \
   --restart always \
   -p 127.0.0.1:8428:8428 \
-  -v opsboard-vm-data:/victoria-metrics-data \
+  -v mantisops-vm-data:/victoria-metrics-data \
   victoriametrics/victoria-metrics:v1.117.1 \
   -retentionPeriod=90d
 ```
@@ -100,10 +100,10 @@ npm run dev
 ```bash
 # 编译
 cd agent
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o opsboard-agent ./cmd/agent/
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o mantisops-agent ./cmd/agent/
 
 # 创建配置
-cat > /etc/opsboard/agent.yaml << EOF
+cat > /etc/mantisops/agent.yaml << EOF
 agent:
   id: "srv-unique-id"
 server:
@@ -116,7 +116,7 @@ collect:
 EOF
 
 # 运行
-./opsboard-agent
+./mantisops-agent
 ```
 
 ### 5. 生产部署
@@ -124,7 +124,7 @@ EOF
 ```bash
 # 编译后端
 cd server
-go build -o opsboard-server ./cmd/server/
+go build -o mantisops-server ./cmd/server/
 
 # 构建前端
 cd web
@@ -137,7 +137,7 @@ npm run build
 ## 项目结构
 
 ```
-opsboard/
+mantisops/
 ├── agent/                    # Agent 采集端
 │   ├── cmd/agent/            # 入口
 │   └── internal/

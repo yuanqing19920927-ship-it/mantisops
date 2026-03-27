@@ -1,5 +1,5 @@
 syntax = "proto3";
-package opsboard;
+package mantisops;
 option go_package = "./gen";
 
 service AgentService {

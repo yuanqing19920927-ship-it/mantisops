@@ -1,4 +1,4 @@
-# OpsBoard 前端功能模块说明
+# MantisOps 前端功能模块说明
 
 > 访问地址：http://192.168.10.65:3080
 > 技术栈：React 19 + TypeScript + TailwindCSS v4 + Recharts + Zustand
@@ -188,7 +188,7 @@ RDS 云数据库实例监控。
 - HTTP 请求使用严格 TLS 验证（证书无效 → status=down）
 - SSL 证书信息通过独立 TLS 握手采集（InsecureSkipVerify），即使证书过期/自签也能获取到期时间
 - `expect_status=0` 时跳过状态码检查
-- VictoriaMetrics 新指标：`opsboard_probe_http_status`、`opsboard_probe_ssl_days_left`
+- VictoriaMetrics 新指标：`mantisops_probe_http_status`、`mantisops_probe_ssl_days_left`
 
 **数据来源：**
 - 规则：`GET /api/v1/probes`
@@ -407,7 +407,7 @@ ECS / RDS / SSL 证书到期提醒。
 
 ```
 浏览器 → Nginx (:3080)
-            ├── /                          → 静态文件 (~/opsboard/web/dist/)
+            ├── /                          → 静态文件 (~/mantisops/web/dist/)
             ├── /api/*                     → Go Server (127.0.0.1:3100)
             ├── /ws                        → Go Server (WebSocket)
             └── /vm/api/v1/query_range     → VictoriaMetrics (127.0.0.1:8428)
@@ -419,7 +419,7 @@ ECS / RDS / SSL 证书到期提醒。
 
 | 服务器 | Host ID | IP | CPU | 内存 | 磁盘 | 特性 |
 |--------|---------|-----|-----|------|------|------|
-| yuanqing2 | srv-65-yuanqing2 | 192.168.10.65 | 8核 Xeon 4210 | 16GB | 193GB | Docker 容器、OpsBoard Server |
+| yuanqing2 | srv-65-yuanqing2 | 192.168.10.65 | 8核 Xeon 4210 | 16GB | 193GB | Docker 容器、MantisOps Server |
 | ai | srv-69-ai | 192.168.10.69 | 16核 i7-10700K | 64GB | 434GB | GPU 采集 (RTX 3090 24GB)、Ollama |
 | zentao | srv-62-zentao | 192.168.10.62 | 4核 Xeon 4210 | 16GB | 46GB | Docker（权限受限） |
 | sing-box | srv-63-singbox | 192.168.10.63 | 2核 Xeon 4210 | 4GB | 46GB | 代理网关 |

@@ -9,7 +9,7 @@ interface SettingsState {
   setLogoUrl: (url: string) => void
 }
 
-const STORAGE_KEY = 'opsboard-settings'
+const STORAGE_KEY = 'mantisops-settings'
 
 function loadSettings() {
   try {
@@ -30,7 +30,7 @@ function saveSettings(state: Partial<SettingsState>) {
 const saved = loadSettings()
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  platformName: saved.platformName ?? 'OpsBoard',
+  platformName: saved.platformName ?? 'MantisOps',
   platformSubtitle: saved.platformSubtitle ?? '运维监控管理平台',
   logoUrl: saved.logoUrl ?? '/logo.svg',
   setPlatformName: (name) => set((s) => {

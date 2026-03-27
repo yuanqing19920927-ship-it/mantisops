@@ -18,7 +18,8 @@ type SSHClient struct {
 	user     string
 	password string // stored for sudo -S
 	auth     ssh.AuthMethod
-	hostKey  ssh.PublicKey // nil = accept any (TOFU first connect)
+	kbdAuth  ssh.AuthMethod // keyboard-interactive fallback for password auth
+	hostKey  ssh.PublicKey   // nil = accept any (TOFU first connect)
 	conn     *ssh.Client
 }
 
@@ -29,6 +30,13 @@ func NewSSHClientPassword(host string, port int, user, password string, hostKeyS
 		user:     user,
 		password: password,
 		auth:     ssh.Password(password),
+		kbdAuth: ssh.KeyboardInteractive(func(name, instruction string, questions []string, echos []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i := range questions {
+				answers[i] = password
+			}
+			return answers, nil
+		}),
 	}
 	if hostKeyStr != "" {
 		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hostKeyStr))
@@ -65,13 +73,21 @@ func NewSSHClientKey(host string, port int, user, privateKey, passphrase string,
 	return c, nil
 }
 
+func (c *SSHClient) authMethods() []ssh.AuthMethod {
+	methods := []ssh.AuthMethod{c.auth}
+	if c.kbdAuth != nil {
+		methods = append(methods, c.kbdAuth)
+	}
+	return methods
+}
+
 func (c *SSHClient) TestConnection() (latencyMs int, hostKey string, arch string, osName string, err error) {
 	start := time.Now()
 
 	var receivedKey ssh.PublicKey
 	config := &ssh.ClientConfig{
 		User:    c.user,
-		Auth:    []ssh.AuthMethod{c.auth},
+		Auth:    c.authMethods(),
 		Timeout: 10 * time.Second,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			receivedKey = key
@@ -130,7 +146,7 @@ func (c *SSHClient) TestConnection() (latencyMs int, hostKey string, arch string
 func (c *SSHClient) Connect() error {
 	config := &ssh.ClientConfig{
 		User:    c.user,
-		Auth:    []ssh.AuthMethod{c.auth},
+		Auth:    c.authMethods(),
 		Timeout: 10 * time.Second,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			if c.hostKey != nil {

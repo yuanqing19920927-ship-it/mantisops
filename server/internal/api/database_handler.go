@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/store"
 )
 
 type DatabaseHandler struct {
@@ -168,7 +168,7 @@ func (h *DatabaseHandler) buildAccountNameMap(instances []store.CloudInstance) m
 func (h *DatabaseHandler) queryVM() map[string]map[string]float64 {
 	result := make(map[string]map[string]float64)
 
-	data, err := h.vm.Query(`{__name__=~"opsboard_rds_.*"}`)
+	data, err := h.vm.Query(`{__name__=~"mantisops_rds_.*"}`)
 	if err != nil {
 		log.Printf("[db-api] vm query error: %v", err)
 		return result
@@ -186,7 +186,7 @@ func (h *DatabaseHandler) queryVM() map[string]map[string]float64 {
 		return result
 	}
 
-	const prefix = "opsboard_rds_"
+	const prefix = "mantisops_rds_"
 	for _, r := range vmResp.Data.Result {
 		if len(r.Value) < 2 {
 			continue

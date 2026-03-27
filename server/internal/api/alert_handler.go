@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/alert"
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/alert"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
 )
 
 type AlertHandler struct {
@@ -272,7 +272,7 @@ func (h *AlertHandler) TestChannel(c *gin.Context) {
 
 	testEvent := &model.AlertEvent{
 		RuleName:    "测试告警",
-		TargetLabel: "OpsBoard 测试",
+		TargetLabel: "MantisOps 测试",
 		Level:       "info",
 		Message:     "这是一条测试通知，确认渠道配置正确。",
 		FiredAt:     time.Now(),

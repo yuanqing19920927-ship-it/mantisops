@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"opsboard/server/internal/store"
-	"opsboard/server/internal/ws"
+	"mantisops/server/internal/store"
+	"mantisops/server/internal/ws"
 )
 
 type InstallOptions struct {
@@ -193,19 +193,19 @@ func (d *Deployer) runDeploy(managedID int) {
 	d.managedStore.UpdateDetectedArch(managedID, arch)
 	d.broadcast(managedID, store.InstallStateConnected, fmt.Sprintf("架构: %s", arch))
 
-	stdout, _, _ := sshClient.Execute("pgrep -x opsboard-agent")
+	stdout, _, _ := sshClient.Execute("pgrep -x mantisops-agent")
 	if strings.TrimSpace(stdout) != "" {
 		// Agent already running, stop it first
-		sshClient.Execute("sudo systemctl stop opsboard-agent 2>/dev/null || sudo killall opsboard-agent 2>/dev/null")
+		sshClient.Execute("sudo systemctl stop mantisops-agent 2>/dev/null || sudo killall mantisops-agent 2>/dev/null")
 		d.broadcast(managedID, store.InstallStateConnected, "已停止旧 Agent")
 	}
 
 	d.managedStore.UpdateState(managedID, store.InstallStateUploading, "")
 	d.broadcast(managedID, store.InstallStateUploading, "上传 Agent 二进制...")
 
-	binName := fmt.Sprintf("opsboard-agent-linux-%s", arch)
+	binName := fmt.Sprintf("mantisops-agent-linux-%s", arch)
 	binPath := filepath.Join(d.binaryDir, binName)
-	if err := sshClient.Upload(binPath, "/tmp/opsboard-agent"); err != nil {
+	if err := sshClient.Upload(binPath, "/tmp/mantisops-agent"); err != nil {
 		d.fail(managedID, "上传失败: "+err.Error())
 		return
 	}
@@ -242,16 +242,16 @@ agent:
   id: "%s"
 `, d.grpcAddr, d.pskToken, opts.CollectInterval, opts.Docker, opts.GPU, agentID)
 
-	sshClient.Execute("sudo mkdir -p /etc/opsboard")
+	sshClient.Execute("sudo mkdir -p /etc/mantisops")
 	if err := sshClient.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644); err != nil {
 		d.fail(managedID, "写入配置失败: "+err.Error())
 		return
 	}
 
 	cmds := []string{
-		"sudo mv /tmp/agent.yaml /etc/opsboard/agent.yaml",
-		"sudo mv /tmp/opsboard-agent /usr/local/bin/opsboard-agent",
-		"sudo chmod +x /usr/local/bin/opsboard-agent",
+		"sudo mv /tmp/agent.yaml /etc/mantisops/agent.yaml",
+		"sudo mv /tmp/mantisops-agent /usr/local/bin/mantisops-agent",
+		"sudo chmod +x /usr/local/bin/mantisops-agent",
 	}
 	for _, cmd := range cmds {
 		if _, stderr, err := sshClient.Execute(cmd); err != nil {
@@ -261,29 +261,29 @@ agent:
 	}
 
 	serviceUnit := `[Unit]
-Description=OpsBoard Agent
+Description=MantisOps Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/opsboard-agent -config /etc/opsboard/agent.yaml
+ExecStart=/usr/local/bin/mantisops-agent -config /etc/mantisops/agent.yaml
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 `
-	if err := sshClient.WriteFile("/tmp/opsboard-agent.service", []byte(serviceUnit), 0644); err != nil {
+	if err := sshClient.WriteFile("/tmp/mantisops-agent.service", []byte(serviceUnit), 0644); err != nil {
 		d.fail(managedID, "写入 systemd 服务文件失败: "+err.Error())
 		return
 	}
 
 	startCmds := []string{
-		"sudo mv /tmp/opsboard-agent.service /etc/systemd/system/opsboard-agent.service",
+		"sudo mv /tmp/mantisops-agent.service /etc/systemd/system/mantisops-agent.service",
 		"sudo systemctl daemon-reload",
-		"sudo systemctl enable opsboard-agent",
-		"sudo systemctl start opsboard-agent",
+		"sudo systemctl enable mantisops-agent",
+		"sudo systemctl start mantisops-agent",
 	}
 	for _, cmd := range startCmds {
 		if _, stderr, err := sshClient.Execute(cmd); err != nil {

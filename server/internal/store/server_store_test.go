@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"opsboard/server/internal/model"
+	"mantisops/server/internal/model"
 )
 
 func setupTestDB(t *testing.T) *ServerStore {

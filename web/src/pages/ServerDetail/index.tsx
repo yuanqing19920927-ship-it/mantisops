@@ -557,36 +557,36 @@ export default function ServerDetail() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <HistoryChart
             title="CPU 使用率"
-            queries={[{ query: `opsboard_cpu_usage_percent{host_id="${id}"}`, label: 'CPU', color: '#2ca07a' }]}
+            queries={[{ query: `mantisops_cpu_usage_percent{host_id="${id}"}`, label: 'CPU', color: '#2ca07a' }]}
             {...timeWindow}
             unit="%"
           />
           <HistoryChart
             title="系统负载"
             queries={[
-              { query: `opsboard_cpu_load1{host_id="${id}"}`, label: '1分钟负载', color: '#2ca07a' },
-              { query: `opsboard_cpu_load5{host_id="${id}"}`, label: '5分钟负载', color: '#0ab39c' },
+              { query: `mantisops_cpu_load1{host_id="${id}"}`, label: '1分钟负载', color: '#2ca07a' },
+              { query: `mantisops_cpu_load5{host_id="${id}"}`, label: '5分钟负载', color: '#0ab39c' },
             ]}
             {...timeWindow}
             chartType="line"
           />
           <HistoryChart
             title="内存使用率"
-            queries={[{ query: `opsboard_memory_usage_percent{host_id="${id}"}`, label: '内存', color: '#f7b84b' }]}
+            queries={[{ query: `mantisops_memory_usage_percent{host_id="${id}"}`, label: '内存', color: '#f7b84b' }]}
             {...timeWindow}
             unit="%"
           />
           <HistoryChart
             title="磁盘使用率"
-            queries={[{ query: `opsboard_disk_usage_percent{host_id="${id}"}`, label: '磁盘', color: '#f06548' }]}
+            queries={[{ query: `mantisops_disk_usage_percent{host_id="${id}"}`, label: '磁盘', color: '#f06548' }]}
             {...timeWindow}
             unit="%"
           />
           <HistoryChart
             title="网络流量（合计）"
             queries={[
-              { query: `sum(opsboard_network_rx_bytes_per_sec{host_id="${id}"})`, label: '入站', color: '#0ab39c' },
-              { query: `sum(opsboard_network_tx_bytes_per_sec{host_id="${id}"})`, label: '出站', color: '#f7b84b' },
+              { query: `sum(mantisops_network_rx_bytes_per_sec{host_id="${id}"})`, label: '入站', color: '#0ab39c' },
+              { query: `sum(mantisops_network_tx_bytes_per_sec{host_id="${id}"})`, label: '出站', color: '#f7b84b' },
             ]}
             {...timeWindow}
             chartType="line"
@@ -595,8 +595,8 @@ export default function ServerDetail() {
           <HistoryChart
             title="网络流量（分网卡）"
             queries={[
-              { query: `opsboard_network_rx_bytes_per_sec{host_id="${id}"}`, label: '入站', color: '#0ab39c' },
-              { query: `opsboard_network_tx_bytes_per_sec{host_id="${id}"}`, label: '出站', color: '#f7b84b' },
+              { query: `mantisops_network_rx_bytes_per_sec{host_id="${id}"}`, label: '入站', color: '#0ab39c' },
+              { query: `mantisops_network_tx_bytes_per_sec{host_id="${id}"}`, label: '出站', color: '#f7b84b' },
             ]}
             {...timeWindow}
             chartType="line"
@@ -608,19 +608,19 @@ export default function ServerDetail() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
             <HistoryChart
               title="GPU 使用率"
-              queries={[{ query: `opsboard_gpu_usage_percent{host_id="${id}"}`, label: 'GPU', color: '#a855f7' }]}
+              queries={[{ query: `mantisops_gpu_usage_percent{host_id="${id}"}`, label: 'GPU', color: '#a855f7' }]}
               {...timeWindow}
               unit="%"
             />
             <HistoryChart
               title="GPU 显存"
-              queries={[{ query: `opsboard_gpu_memory_used_bytes{host_id="${id}"}`, label: '显存', color: '#3b82f6' }]}
+              queries={[{ query: `mantisops_gpu_memory_used_bytes{host_id="${id}"}`, label: '显存', color: '#3b82f6' }]}
               {...timeWindow}
               formatValue={(v) => formatBytes(v)}
             />
             <HistoryChart
               title="GPU 温度"
-              queries={[{ query: `opsboard_gpu_temperature{host_id="${id}"}`, label: '温度', color: '#f97316' }]}
+              queries={[{ query: `mantisops_gpu_temperature{host_id="${id}"}`, label: '温度', color: '#f97316' }]}
               {...timeWindow}
               unit="°C"
               chartType="line"

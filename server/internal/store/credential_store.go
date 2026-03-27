@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"opsboard/server/internal/crypto"
+	"mantisops/server/internal/crypto"
 )
 
 type Credential struct {

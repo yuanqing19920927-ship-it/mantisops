@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"opsboard/server/internal/model"
+	"mantisops/server/internal/model"
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -105,7 +105,7 @@ func FormatFiringDingtalk(event *model.AlertEvent) (string, string) {
 	} else if event.Level == "info" {
 		levelEmoji = "🔵"
 	}
-	title := fmt.Sprintf("%s OpsBoard 告警", levelEmoji)
+	title := fmt.Sprintf("%s MantisOps 告警", levelEmoji)
 	text := fmt.Sprintf("### %s %s\n- **目标**: %s\n- **当前值**: %.2f\n- **级别**: %s\n- **时间**: %s\n- **详情**: %s",
 		levelEmoji, event.RuleName, event.TargetLabel, event.Value, event.Level,
 		event.FiredAt.Format("2006-01-02 15:04:05"), event.Message)
@@ -114,7 +114,7 @@ func FormatFiringDingtalk(event *model.AlertEvent) (string, string) {
 
 // FormatResolvedDingtalk formats a resolved alert as DingTalk markdown
 func FormatResolvedDingtalk(event *model.AlertEvent) (string, string) {
-	title := "🟢 OpsBoard 恢复"
+	title := "🟢 MantisOps 恢复"
 	resolvedAt := time.Now().Format("2006-01-02 15:04:05")
 	if event.ResolvedAt != nil {
 		resolvedAt = event.ResolvedAt.Format("2006-01-02 15:04:05")

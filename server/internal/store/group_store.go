@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 
-	"opsboard/server/internal/model"
+	"mantisops/server/internal/model"
 )
 
 type GroupStore struct {

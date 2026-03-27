@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/deployer"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/deployer"
+	"mantisops/server/internal/store"
 )
 
 type ManagedServerHandler struct {

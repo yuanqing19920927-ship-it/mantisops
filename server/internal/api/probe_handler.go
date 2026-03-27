@@ -7,9 +7,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"opsboard/server/internal/model"
-	"opsboard/server/internal/probe"
-	"opsboard/server/internal/store"
+	"mantisops/server/internal/model"
+	"mantisops/server/internal/probe"
+	"mantisops/server/internal/store"
 )
 
 func deriveHostPort(rule *model.ProbeRule) {
