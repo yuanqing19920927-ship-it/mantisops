@@ -2,14 +2,10 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useServerStore } from '../../stores/serverStore'
 import { ServerCard } from '../../components/ServerCard'
 import { StatusBadge } from '../../components/StatusBadge'
-import { AddServerDialog } from '../../components/AddServerDialog'
 import { Link } from 'react-router-dom'
 import { formatBytesPS } from '../../utils/format'
 import { createGroup, deleteGroup, setServerGroup } from '../../api/client'
-import { getManagedServers } from '../../api/onboarding'
 import type { ServerGroup } from '../../types'
-import type { ManagedServer } from '../../types/onboarding'
-// ManagedServer is used for the managedServers state type
 
 export default function Servers() {
   const { servers, metrics, groups, fetchDashboard } = useServerStore()
@@ -17,25 +13,8 @@ export default function Servers() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showGroupMgmt, setShowGroupMgmt] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
-  const [showAddServer, setShowAddServer] = useState(false)
-  const [managedServers, setManagedServers] = useState<ManagedServer[]>([])
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
-
-  const fetchManagedServers = useCallback(() => {
-    getManagedServers().then(setManagedServers).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    fetchManagedServers()
-    const timer = setInterval(fetchManagedServers, 15000)
-    return () => clearInterval(timer)
-  }, [fetchManagedServers])
-
-  // Pending-install servers (not yet online — no host_id yet)
-  const pendingManagedServers = useMemo(() => {
-    return managedServers.filter((m) => m.install_state !== 'online')
-  }, [managedServers])
 
   // Aggregated stats
   const onlineCount = servers.filter((s) => s.status === 'online').length
@@ -126,26 +105,10 @@ export default function Servers() {
   return (
     <div className="flex flex-col gap-5 pb-16">
 
-      {/* Add Server Dialog */}
-      <AddServerDialog
-        open={showAddServer}
-        onClose={() => setShowAddServer(false)}
-        onSuccess={() => { fetchDashboard(); fetchManagedServers() }}
-      />
-
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <h4 className="text-[18px] font-semibold text-[#495057] mb-0">服务器列表</h4>
         <div className="flex items-center gap-2">
-          {/* Add Server button */}
-          <button
-            onClick={() => setShowAddServer(true)}
-            className="flex items-center gap-1 px-3 py-1.5 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
-            <span className="hidden sm:inline">添加服务器</span>
-          </button>
-
           {/* Group management toggle */}
           <button
             onClick={() => setShowGroupMgmt(!showGroupMgmt)}
@@ -226,61 +189,6 @@ export default function Servers() {
             >
               创建
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Pending/Installing Managed Servers */}
-      {pendingManagedServers.length > 0 && (
-        <div className="bg-white rounded-[10px] border border-[#e9ecef] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-4">
-          <h6 className="text-[13px] font-semibold text-[#495057] mb-3 flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#f7b84b]" style={{ fontSize: '16px' }}>pending</span>
-            正在安装的服务器
-          </h6>
-          <div className="space-y-2">
-            {pendingManagedServers.map((m) => {
-              const isFailed = m.install_state === 'failed'
-              const isOngoing = !isFailed
-              return (
-                <div key={m.id} className="flex items-center gap-3 px-3 py-2 bg-[#f8f9fa] rounded-lg border border-[#e9ecef]">
-                  <div className="flex-shrink-0">
-                    {isFailed ? (
-                      <span className="w-2 h-2 rounded-full bg-[#f06548] block" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-[#f7b84b] block animate-pulse" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[13px] font-medium text-[#495057]">{m.host}</span>
-                    <span className="text-[11px] text-[#878a99] ml-2">{m.ssh_user}@{m.host}:{m.ssh_port}</span>
-                  </div>
-                  <span className={`text-[11px] py-0.5 px-2 rounded font-medium ${
-                    isFailed
-                      ? 'bg-[#f06548]/12 text-[#f06548]'
-                      : 'bg-[#f7b84b]/12 text-[#f7b84b]'
-                  }`}
-                    style={{ backgroundColor: isFailed ? 'rgba(240,101,72,0.08)' : 'rgba(247,184,75,0.08)' }}
-                  >
-                    {m.install_state === 'pending' ? '等待部署'
-                      : m.install_state === 'testing' ? '测试连接'
-                      : m.install_state === 'connected' ? '已连接'
-                      : m.install_state === 'uploading' ? '上传中'
-                      : m.install_state === 'installing' ? '安装中'
-                      : m.install_state === 'waiting' ? '等待上线'
-                      : m.install_state === 'failed' ? '安装失败'
-                      : m.install_state}
-                  </span>
-                  {isFailed && m.install_error && (
-                    <span className="text-[11px] text-[#f06548] truncate max-w-[200px]" title={m.install_error}>
-                      {m.install_error}
-                    </span>
-                  )}
-                  {isOngoing && (
-                    <span className="w-3.5 h-3.5 border border-[#f7b84b]/30 border-t-[#f7b84b] rounded-full animate-spin flex-shrink-0" />
-                  )}
-                </div>
-              )
-            })}
           </div>
         </div>
       )}

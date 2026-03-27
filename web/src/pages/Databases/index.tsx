@@ -2,12 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getDatabases, type RDSInfo } from '../../api/client'
 import { ProgressBar } from '../../components/ProgressBar'
-import { AddCloudAccountDialog } from '../../components/AddCloudAccountDialog'
 
 export default function Databases() {
   const [databases, setDatabases] = useState<RDSInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAddCloud, setShowAddCloud] = useState(false)
 
   const fetchData = () => {
     getDatabases().then((data) => {
@@ -42,26 +40,12 @@ export default function Databases() {
 
   return (
     <div className="space-y-6">
-      {/* Add Cloud Account Dialog */}
-      <AddCloudAccountDialog
-        open={showAddCloud}
-        onClose={() => setShowAddCloud(false)}
-        onSuccess={fetchData}
-      />
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-headline font-bold text-on-surface">数据库监控</h1>
           <p className="text-sm text-on-surface-variant mt-1">阿里云 RDS 实例监控</p>
         </div>
-        <button
-          onClick={() => setShowAddCloud(true)}
-          className="flex items-center gap-1.5 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded-lg transition-colors"
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
-          添加云账号
-        </button>
       </div>
 
       {/* Stats */}
