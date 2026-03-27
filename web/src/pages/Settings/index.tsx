@@ -43,6 +43,7 @@ export default function Settings() {
   const [managedServers, setManagedServers] = useState<ManagedServer[]>([])
   const [cloudAccounts, setCloudAccounts] = useState<CloudAccount[]>([])
   const [syncingId, setSyncingId] = useState<number | null>(null)
+  const [retryTarget, setRetryTarget] = useState<ManagedServer | null>(null)
 
   const fetchManaged = useCallback(() => {
     getManagedServers().then(setManagedServers).catch((err) => console.error('[settings] fetch managed:', err))
@@ -68,6 +69,7 @@ export default function Settings() {
   }
 
   const handleRetryDeploy = async (id: number) => {
+    setRetryTarget(null)
     await retryDeploy(id)
     fetchManaged()
   }
@@ -386,7 +388,7 @@ export default function Settings() {
                         )}
                         {isFailed && (
                           <button
-                            onClick={() => handleRetryDeploy(m.id)}
+                            onClick={() => setRetryTarget(m)}
                             className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded transition-colors"
                           >
                             重试
@@ -518,6 +520,40 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* ── 重试确认对话框 ── */}
+      {retryTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setRetryTarget(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-[480px] max-w-[90vw] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#f06548]/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[#f06548] text-[16px]">error</span>
+              </div>
+              <h3 className="text-sm font-semibold text-[#495057]">部署失败 — {retryTarget.host}</h3>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-xs text-[#878a99] mb-2">错误信息：</p>
+              <div className="bg-[#f8f9fa] border border-[#e9ebec] rounded-lg px-3 py-2.5 text-[12px] text-[#495057] leading-relaxed whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto font-mono">
+                {retryTarget.install_error || '未知错误'}
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-[#e9ebec] flex justify-end gap-2">
+              <button
+                onClick={() => setRetryTarget(null)}
+                className="text-xs px-4 py-2 border border-[#ced4da] text-[#878a99] rounded-lg hover:bg-[#f8f9fa] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleRetryDeploy(retryTarget.id)}
+                className="text-xs px-4 py-2 bg-[#2ca07a] text-white rounded-lg hover:bg-[#248a69] transition-colors"
+              >
+                确认重试
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
