@@ -4,6 +4,8 @@ import {
   getAlertEvents, getAlertStats, ackAlertEvent, getEventNotifications,
   getAlertChannels, createAlertChannel, updateAlertChannel, deleteAlertChannel, testAlertChannel,
 } from '../../api/alert'
+import { getNasDevices } from '../../api/nas'
+import type { NasDevice } from '../../api/nas'
 import type { AlertRule, AlertEvent, AlertStats, NotificationChannel, AlertNotificationDetail } from '../../types'
 
 // ── Constants ──────────────────────────────────────────────
@@ -19,7 +21,32 @@ const RULE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'gpu_memory', label: 'GPU 显存' },
   { value: 'network_rx', label: '网络入站' },
   { value: 'network_tx', label: '网络出站' },
+  { value: 'nas_offline', label: 'NAS 离线' },
+  { value: 'nas_raid_degraded', label: 'RAID 降级' },
+  { value: 'nas_disk_smart', label: '硬盘 S.M.A.R.T. 异常' },
+  { value: 'nas_disk_temperature', label: '硬盘温度过高' },
+  { value: 'nas_volume_usage', label: '存储卷空间不足' },
+  { value: 'nas_ups_battery', label: 'UPS 电池供电' },
 ]
+
+const NAS_TYPE_VALUES = new Set([
+  'nas_offline', 'nas_raid_degraded', 'nas_disk_smart',
+  'nas_disk_temperature', 'nas_volume_usage', 'nas_ups_battery',
+])
+
+// NAS types that are boolean conditions — no threshold needed
+const NAS_BOOLEAN_TYPES = new Set([
+  'nas_offline', 'nas_raid_degraded', 'nas_disk_smart', 'nas_ups_battery',
+])
+
+const NAS_TYPE_DEFAULTS: Record<string, { threshold: number; unit: string }> = {
+  nas_disk_temperature: { threshold: 55, unit: '°C' },
+  nas_volume_usage: { threshold: 90, unit: '%' },
+}
+
+function isNasType(type: string): boolean {
+  return NAS_TYPE_VALUES.has(type)
+}
 
 const OPERATOR_OPTIONS = ['>', '>=', '<', '<=', '==', '!=']
 
@@ -113,6 +140,8 @@ export default function Alerts() {
   const [ruleForm, setRuleForm] = useState({
     name: '', type: 'cpu', target_id: '', operator: '>', threshold: 90, unit: '%', duration: 60, level: 'warning',
   })
+  const [nasDevices, setNasDevices] = useState<NasDevice[]>([])
+  const [nasDevicesLoaded, setNasDevicesLoaded] = useState(false)
 
   // Channels state
   const [channels, setChannels] = useState<NotificationChannel[]>([])
@@ -154,6 +183,14 @@ export default function Alerts() {
   const loadChannels = useCallback(async () => {
     try { setChannels(await getAlertChannels()) } catch { /* ignore */ }
   }, [])
+
+  const loadNasDevices = useCallback(async () => {
+    if (nasDevicesLoaded) return
+    try {
+      setNasDevices(await getNasDevices())
+      setNasDevicesLoaded(true)
+    } catch { /* ignore */ }
+  }, [nasDevicesLoaded])
 
   useEffect(() => { loadStats() }, [loadStats])
 
@@ -583,7 +620,10 @@ export default function Alerts() {
               <div className="flex items-center justify-between mb-5">
                 <span className="text-[#495057] text-[14px] font-medium">告警规则列表</span>
                 <button
-                  onClick={() => setShowRuleForm(!showRuleForm)}
+                  onClick={() => {
+                    setShowRuleForm(!showRuleForm)
+                    if (!showRuleForm && isNasType(ruleForm.type)) loadNasDevices()
+                  }}
                   className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium text-white bg-[#2ca07a] hover:bg-[#259068] rounded-[6px] transition-colors"
                 >
                   <span className="material-symbols-outlined text-base">add</span>
@@ -604,19 +644,50 @@ export default function Alerts() {
                     />
                     <select
                       value={ruleForm.type}
-                      onChange={(e) => setRuleForm({ ...ruleForm, type: e.target.value })}
+                      onChange={(e) => {
+                        const newType = e.target.value
+                        const defaults = NAS_TYPE_DEFAULTS[newType]
+                        setRuleForm({
+                          ...ruleForm,
+                          type: newType,
+                          target_id: '',
+                          threshold: defaults?.threshold ?? ruleForm.threshold,
+                          unit: defaults?.unit ?? ruleForm.unit,
+                        })
+                        if (isNasType(newType)) loadNasDevices()
+                      }}
                       className={selectClass}
                     >
-                      {RULE_TYPE_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
+                      <optgroup label="服务器 / 探针">
+                        {RULE_TYPE_OPTIONS.filter((o) => !isNasType(o.value)).map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="NAS">
+                        {RULE_TYPE_OPTIONS.filter((o) => isNasType(o.value)).map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </optgroup>
                     </select>
-                    <input
-                      placeholder="目标 ID（可选）"
-                      value={ruleForm.target_id}
-                      onChange={(e) => setRuleForm({ ...ruleForm, target_id: e.target.value })}
-                      className={inputClass}
-                    />
+                    {isNasType(ruleForm.type) ? (
+                      <select
+                        value={ruleForm.target_id}
+                        onChange={(e) => setRuleForm({ ...ruleForm, target_id: e.target.value })}
+                        className={selectClass}
+                      >
+                        <option value="">所有 NAS</option>
+                        {nasDevices.map((d) => (
+                          <option key={d.id} value={`nas:${d.id}`}>{d.name} ({d.host})</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        placeholder="目标 ID（可选）"
+                        value={ruleForm.target_id}
+                        onChange={(e) => setRuleForm({ ...ruleForm, target_id: e.target.value })}
+                        className={inputClass}
+                      />
+                    )}
                     <select
                       value={ruleForm.operator}
                       onChange={(e) => setRuleForm({ ...ruleForm, operator: e.target.value })}
@@ -628,13 +699,15 @@ export default function Alerts() {
                     </select>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <input
-                      type="number"
-                      placeholder="阈值"
-                      value={ruleForm.threshold}
-                      onChange={(e) => setRuleForm({ ...ruleForm, threshold: Number(e.target.value) })}
-                      className={inputClass}
-                    />
+                    {!(isNasType(ruleForm.type) && NAS_BOOLEAN_TYPES.has(ruleForm.type)) && (
+                      <input
+                        type="number"
+                        placeholder="阈值"
+                        value={ruleForm.threshold}
+                        onChange={(e) => setRuleForm({ ...ruleForm, threshold: Number(e.target.value) })}
+                        className={inputClass}
+                      />
+                    )}
                     <input
                       type="number"
                       placeholder="持续时间（秒）"
