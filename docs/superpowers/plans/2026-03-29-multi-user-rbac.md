@@ -109,11 +109,21 @@ package store
 
 import (
 	"testing"
-	"time"
 )
 
+// initTestDB creates a temp SQLite with full schema for testing.
+// Reuses InitSQLite which runs all migrations (matching existing test pattern in sqlite_test.go).
+func initTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := InitSQLite(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
 func TestUserStore_CreateAndGet(t *testing.T) {
-	db := testDB(t) // 复用 sqlite_test.go 中的 testDB helper
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 
@@ -128,13 +138,30 @@ func TestUserStore_CreateAndGet(t *testing.T) {
 	if u.Username != "admin" || u.Role != "admin" || u.DisplayName != "管理员" {
 		t.Fatalf("unexpected user: %+v", u)
 	}
-	if !u.Enabled || u.MustChangePwd {
-		t.Fatalf("unexpected flags: enabled=%v must_change=%v", u.Enabled, u.MustChangePwd)
+	// Create() sets must_change_pwd = 1 (admin-created users must change password)
+	if !u.Enabled || !u.MustChangePwd {
+		t.Fatalf("unexpected flags: enabled=%v must_change=%v (expected true, true)", u.Enabled, u.MustChangePwd)
+	}
+}
+
+func TestUserStore_CreateInitialAdmin(t *testing.T) {
+	db := initTestDB(t)
+	defer db.Close()
+	s := NewUserStore(db)
+
+	id, err := s.CreateInitialAdmin("admin", "$2a$10$hashhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := s.GetByID(id)
+	// CreateInitialAdmin sets must_change_pwd = 0 (migrated admin, no forced change)
+	if u.MustChangePwd {
+		t.Fatalf("initial admin should not require password change")
 	}
 }
 
 func TestUserStore_GetByUsername(t *testing.T) {
-	db := testDB(t)
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 	s.Create("testuser", "hash", "", "viewer")
@@ -154,7 +181,7 @@ func TestUserStore_GetByUsername(t *testing.T) {
 }
 
 func TestUserStore_Update(t *testing.T) {
-	db := testDB(t)
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 	id, _ := s.Create("u1", "hash", "", "viewer")
@@ -170,7 +197,7 @@ func TestUserStore_Update(t *testing.T) {
 }
 
 func TestUserStore_IncrementTokenVersion(t *testing.T) {
-	db := testDB(t)
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 	id, _ := s.Create("u1", "hash", "", "viewer")
@@ -184,7 +211,7 @@ func TestUserStore_IncrementTokenVersion(t *testing.T) {
 }
 
 func TestUserStore_CountEnabledAdmins(t *testing.T) {
-	db := testDB(t)
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 	s.Create("a1", "h", "", "admin")
@@ -198,7 +225,7 @@ func TestUserStore_CountEnabledAdmins(t *testing.T) {
 }
 
 func TestUserStore_Permissions(t *testing.T) {
-	db := testDB(t)
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 	id, _ := s.Create("u1", "h", "", "operator")
@@ -230,7 +257,7 @@ func TestUserStore_Permissions(t *testing.T) {
 }
 
 func TestUserStore_Delete(t *testing.T) {
-	db := testDB(t)
+	db := initTestDB(t)
 	defer db.Close()
 	s := NewUserStore(db)
 	id, _ := s.Create("u1", "h", "", "viewer")
@@ -564,7 +591,7 @@ JWTMiddleware 改为：
 - 签发新 token（must_change_pwd=false，新 token_version）
 - 返回新 token + 用户信息
 
-新增 `NewAuthHandler(userStore, jwtSecret)` 构造函数。
+新增 `NewAuthHandler(userStore *store.UserStore, jwtSecret string, tvCache *TokenVersionCache)` 构造函数（三参数，tvCache 由 main.go 注入）。
 
 - [ ] **Step 2: 编译验证**
 
@@ -752,7 +779,7 @@ git commit -m "feat(auth): add RequireRole middleware and PermissionCache"
 - 创建 `userStore := store.NewUserStore(db)`
 - 旧账号迁移逻辑：`userStore.HasAnyUser()` → false 时用 `cfg.Auth.Username/Password` + bcrypt 创建初始 admin
 - `permCache := api.NewPermissionCache(userStore, groupStore, serverStore)`
-- `authHandler := api.NewAuthHandler(userStore, cfg.Auth.JWTSecret)` （新签名）
+- `authHandler := api.NewAuthHandler(userStore, cfg.Auth.JWTSecret, tvCache)` （三参数，与 Task 3 定义一致）
 - RouterDeps 新增 `UserStore`、`PermissionCache`
 
 - [ ] **Step 2: router.go 改造**
@@ -765,15 +792,29 @@ PermissionCache  *PermissionCache
 
 路由分组改造：
 ```go
-// viewer 级（默认，所有 GET 查询）
+// viewer 级（默认，所有 GET 查询 — 受资源级过滤保护）
 v1.GET("/dashboard", ...)
 v1.GET("/servers", ...)
-// ...
+v1.GET("/servers/:id", ...)
+v1.GET("/probes", ...)
+v1.GET("/probes/status", ...)
+v1.GET("/assets", ...)
+v1.GET("/databases", ...)
+v1.GET("/databases/:id", ...)
+v1.GET("/billing", ...)
+v1.GET("/alerts/rules", ...)
+v1.GET("/alerts/events", ...)
+v1.GET("/alerts/stats", ...)
+v1.GET("/alerts/events/:id/notifications", ...) // 资源级过滤见 Task 8
+// 注意：GET /alerts/channels 含敏感信息（Webhook URL），放入 operator 组
 
 // operator 级
 op := v1.Group("")
 op.Use(RequireRole("operator"))
 {
+    // 敏感 GET — 从 viewer 路径显式摘出
+    op.GET("/alerts/channels", ...)
+
     op.POST("/probes", ...)
     op.PUT("/probes/:id", ...)
     op.DELETE("/probes/:id", ...)
@@ -1039,6 +1080,7 @@ git commit -m "feat(auth): Hub per-connection permission filtering + typed broad
 | AssetHandler | List | Servers（asset.server_id → server.host_id） |
 | DatabaseHandler | List, Get | Databases |
 | AlertHandler | ListEvents, ListRules | 按 target_id 映射到 Servers/Probes（查后过滤） |
+| AlertHandler | GetEventNotifications | 先查事件的 target_id，检查用户是否有权访问该目标，无权返回 403。有权则正常返回通知投递详情 |
 | AlertHandler | **GetStats** | **必须 SQL 层过滤**（见下方） |
 | BillingHandler | List | 见下方 Billing 映射说明 |
 | LogHandler | ListRuntime | source 过滤（查后过滤，非 admin 排除 source=server） |
