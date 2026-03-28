@@ -185,7 +185,7 @@ export default function Settings() {
                 {(['claude', 'openai', 'ollama'] as const).map((p) => (
                   <button
                     key={p}
-                    onClick={() => { setAiProvider(p); setAiApiKey(''); setAiBaseUrl(''); setAiReportModel(''); setAiChatModel(''); setAiTestResult(null) }}
+                    onClick={() => { setAiProvider(p); setAiTestResult(null) }}
                     className={`text-[13px] px-4 py-2 rounded-lg transition-colors font-medium ${
                       aiProvider === p
                         ? 'bg-[#2ca07a] text-white'
@@ -254,10 +254,12 @@ export default function Settings() {
                 onClick={async () => {
                   setAiTesting(true); setAiTestResult(null)
                   try {
-                    const payload: Record<string, string> = { provider: aiProvider, model: aiReportModel || (aiProvider === 'ollama' ? 'qwen2.5:7b' : 'gpt-4o') }
+                    const model = aiReportModel || (aiProvider === 'claude' ? 'claude-sonnet-4-20250514' : aiProvider === 'openai' ? 'gpt-4o' : 'qwen2.5:7b')
+                    const host = aiBaseUrl || (aiProvider === 'ollama' ? 'http://192.168.10.69:11434' : 'https://api.openai.com/v1')
+                    const payload: Record<string, string> = { provider: aiProvider, model }
                     if (aiProvider === 'claude' || aiProvider === 'openai') payload.api_key = aiApiKey
-                    if (aiProvider === 'openai') payload.base_url = aiBaseUrl
-                    if (aiProvider === 'ollama') payload.host = aiBaseUrl || 'http://192.168.10.69:11434'
+                    if (aiProvider === 'openai') payload.host = host
+                    if (aiProvider === 'ollama') payload.host = host
                     const res = await testProvider(payload)
                     setAiTestResult({ ok: res.ok, error: res.error })
                   } catch (e: any) {
