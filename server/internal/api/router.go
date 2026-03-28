@@ -258,18 +258,34 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		}
 	}
 
-	// WebSocket（通过 query param token 鉴权）
+	// WebSocket（通过 query param token 鉴权，携带角色和权限）
 	r.GET("/ws", func(c *gin.Context) {
 		token := c.Query("token")
 		if token == "" {
 			c.JSON(401, gin.H{"error": "missing token"})
 			return
 		}
-		if _, err := deps.AuthHandler.ValidateToken(token); err != nil {
+		payload, err := deps.AuthHandler.ValidateToken(token)
+		if err != nil {
 			c.JSON(401, gin.H{"error": "invalid token"})
 			return
 		}
-		deps.Hub.HandleWS(c.Writer, c.Request)
+		// Check token version (same as JWTMiddleware)
+		currentVersion, err := deps.AuthHandler.tvCache.Get(payload.UserID)
+		if err != nil || payload.TokenVersion < currentVersion {
+			c.JSON(401, gin.H{"error": "token revoked"})
+			return
+		}
+		// Build permission checker for non-admin users
+		var perm ws.PermChecker
+		if payload.Role != "admin" && deps.PermissionCache != nil {
+			ps, err := deps.PermissionCache.Get(payload.UserID)
+			if err != nil {
+				ps = &PermissionSet{} // empty = see nothing
+			}
+			perm = ps
+		}
+		deps.Hub.HandleWSWithAuth(c.Writer, c.Request, payload.UserID, payload.Role, perm)
 	})
 
 	// 静态文件服务（前端 SPA）

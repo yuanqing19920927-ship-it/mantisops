@@ -101,5 +101,13 @@ func (h *AssetHandler) ListDiscovered(c *gin.Context) {
 	if result == nil {
 		result = make(map[string][]store.DiscoveredService)
 	}
+	// Filter by resource-level permissions (same as List)
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		for hostID := range result {
+			if !ps.CanSeeServer(hostID) {
+				delete(result, hostID)
+			}
+		}
+	}
 	c.JSON(http.StatusOK, result)
 }
