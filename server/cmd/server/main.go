@@ -112,12 +112,16 @@ func main() {
 	)
 	dep.RecoverStaleWaiting() // fix any managed servers stuck in "waiting" state
 
+	// 8.5. User store + permission cache (needed by handlers below)
+	userStore := store.NewUserStore(db)
+	permCache := api.NewPermissionCache(userStore, serverStore)
+
 	// 9. Probe
 	probeStore := store.NewProbeStore(db)
 	prober := probe.NewProber(probeStore, vmStore, hub)
 	prober.Start(cfg.Probe.Interval)
 	defer prober.Stop()
-	probeHandler := api.NewProbeHandler(probeStore, prober)
+	probeHandler := api.NewProbeHandler(probeStore, prober, permCache)
 
 	// Scan
 	scanTemplateStore := store.NewScanTemplateStore(db)
@@ -134,7 +138,7 @@ func main() {
 	alerter := alert.NewAlerter(alertStore, hub, mc, prober, serverStore, nasCollector)
 	alerter.Start()
 	defer alerter.Stop()
-	alertHandler := api.NewAlertHandler(alertStore, alerter)
+	alertHandler := api.NewAlertHandler(alertStore, alerter, permCache)
 
 	// Pre-load firing alert targets into Hub for WS permission filtering
 	if targets, err := alertStore.ListFiringAlertTargets(); err == nil && len(targets) > 0 {
@@ -192,7 +196,6 @@ func main() {
 	if cfg.Auth.JWTSecret == "" {
 		log.Fatalf("FATAL: auth.jwt_secret must be configured (non-empty, recommend 32+ random chars)")
 	}
-	userStore := store.NewUserStore(db)
 	tvCache := api.NewTokenVersionCache(userStore)
 
 	// Migrate initial admin from server.yaml (one-time)
@@ -211,15 +214,14 @@ func main() {
 		}
 	}
 
-	permCache := api.NewPermissionCache(userStore, serverStore)
 	authHandler := api.NewAuthHandler(userStore, cfg.Auth.JWTSecret, tvCache)
 	userHandler := api.NewUserHandler(userStore, tvCache, permCache, hub)
 
 	// 15. Database (RDS) - reads from CloudStore
-	dbHandler := api.NewDatabaseHandler(cloudStore, vmStore)
+	dbHandler := api.NewDatabaseHandler(cloudStore, vmStore, permCache)
 
 	// 16. Billing - reads from CloudStore + CredentialStore
-	billingHandler := api.NewBillingHandler(cloudStore, credentialStore, cfg.Aliyun)
+	billingHandler := api.NewBillingHandler(cloudStore, credentialStore, cfg.Aliyun, permCache)
 
 	// 17. Groups
 	groupHandler := api.NewGroupHandler(groupStore, serverStore, permCache)
@@ -234,7 +236,7 @@ func main() {
 
 	// 19. Log handler
 	logSearcher := logging.NewLogSearcher(logStore, cfg.Logging.Dir)
-	logHandler := api.NewLogHandler(logStore, logSearcher)
+	logHandler := api.NewLogHandler(logStore, logSearcher, permCache)
 
 	// 20. Settings
 	settingsStore := store.NewSettingsStore(db)

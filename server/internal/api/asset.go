@@ -10,11 +10,13 @@ import (
 )
 
 type AssetHandler struct {
-	store *store.AssetStore
+	store           *store.AssetStore
+	discoveredStore *store.DiscoveredServiceStore
+	// TODO: add permCache and filter assets by server visibility (requires server_id → host_id mapping)
 }
 
-func NewAssetHandler(s *store.AssetStore) *AssetHandler {
-	return &AssetHandler{store: s}
+func NewAssetHandler(s *store.AssetStore, ds *store.DiscoveredServiceStore) *AssetHandler {
+	return &AssetHandler{store: s, discoveredStore: ds}
 }
 
 func (h *AssetHandler) List(c *gin.Context) {
@@ -68,4 +70,20 @@ func (h *AssetHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *AssetHandler) ListDiscovered(c *gin.Context) {
+	if h.discoveredStore == nil {
+		c.JSON(http.StatusOK, map[string][]store.DiscoveredService{})
+		return
+	}
+	result, err := h.discoveredStore.ListAll()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if result == nil {
+		result = make(map[string][]store.DiscoveredService)
+	}
+	c.JSON(http.StatusOK, result)
 }
