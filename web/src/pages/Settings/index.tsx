@@ -1,6 +1,7 @@
 import { useServerStore } from '../../stores/serverStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEffect, useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { StatusBadge } from '../../components/StatusBadge'
 import { timeSince } from '../../utils/format'
 import { AddServerDialog } from '../../components/AddServerDialog'
@@ -13,13 +14,22 @@ import {
   deployAgent,
   syncCloudAccount,
   deleteCloudAccount,
+  getCredentials,
 } from '../../api/onboarding'
-import type { ManagedServer, CloudAccount } from '../../types/onboarding'
+import type { ManagedServer, CloudAccount, CredentialSummary } from '../../types/onboarding'
 import { INSTALL_STATE_LABELS, SYNC_STATE_LABELS } from '../../types/onboarding'
+import {
+  getNasDevices,
+  createNasDevice,
+  updateNasDevice,
+  deleteNasDevice,
+  testNasConnection,
+} from '../../api/nas'
+import type { NasDevice } from '../../api/nas'
 
 export default function Settings() {
-  const { servers, fetchDashboard } = useServerStore()
-  const { platformName, platformSubtitle, logoUrl, setPlatformName, setPlatformSubtitle, setLogoUrl } = useSettingsStore()
+  const { servers, metrics, fetchDashboard } = useServerStore()
+  const { platformName, platformSubtitle, logoUrl, saveSettings } = useSettingsStore()
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
   const onlineCount = servers.filter((s) => s.status === 'online').length
@@ -29,13 +39,24 @@ export default function Settings() {
   const [editSubtitle, setEditSubtitle] = useState(platformSubtitle)
   const [editLogo, setEditLogo] = useState(logoUrl)
   const [settingsSaved, setSettingsSaved] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
 
-  const handleSaveSettings = () => {
-    setPlatformName(editName.trim() || 'MantisOps')
-    setPlatformSubtitle(editSubtitle.trim() || '运维监控管理平台')
-    setLogoUrl(editLogo.trim() || '/logo.svg')
-    setSettingsSaved(true)
-    setTimeout(() => setSettingsSaved(false), 2000)
+  // Sync edit fields when store values change (e.g. after fetchSettings)
+  useEffect(() => { setEditName(platformName) }, [platformName])
+  useEffect(() => { setEditSubtitle(platformSubtitle) }, [platformSubtitle])
+  useEffect(() => { setEditLogo(logoUrl) }, [logoUrl])
+
+  const handleSaveSettings = async () => {
+    setSettingsSaving(true)
+    try {
+      await saveSettings(editName, editSubtitle, editLogo)
+      setSettingsSaved(true)
+      setTimeout(() => setSettingsSaved(false), 2000)
+    } catch (err) {
+      console.error('[settings] save failed:', err)
+    } finally {
+      setSettingsSaving(false)
+    }
   }
 
   const [showAddServer, setShowAddServer] = useState(false)
@@ -45,6 +66,27 @@ export default function Settings() {
   const [syncingId, setSyncingId] = useState<number | null>(null)
   const [retryTarget, setRetryTarget] = useState<ManagedServer | null>(null)
 
+  // NAS state
+  const [nasDevices, setNasDevices] = useState<NasDevice[]>([])
+  const [showNasDialog, setShowNasDialog] = useState(false)
+  const [editingNas, setEditingNas] = useState<NasDevice | null>(null)
+  const [deleteNasTarget, setDeleteNasTarget] = useState<NasDevice | null>(null)
+  const [credentials, setCredentials] = useState<CredentialSummary[]>([])
+
+  // NAS form state
+  const [nasForm, setNasForm] = useState({
+    name: '',
+    nas_type: 'synology' as 'synology' | 'fnos',
+    host: '',
+    port: 22,
+    ssh_user: 'root',
+    credential_id: 0,
+    collect_interval: 60,
+  })
+  const [nasTestResult, setNasTestResult] = useState<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean } | null>(null)
+  const [nasTestLoading, setNasTestLoading] = useState(false)
+  const [nasSaving, setNasSaving] = useState(false)
+
   const fetchManaged = useCallback(() => {
     getManagedServers().then(setManagedServers).catch((err) => console.error('[settings] fetch managed:', err))
   }, [])
@@ -53,15 +95,88 @@ export default function Settings() {
     getCloudAccounts().then(setCloudAccounts).catch((err) => console.error('[settings] fetch cloud:', err))
   }, [])
 
+  const fetchNas = useCallback(() => {
+    getNasDevices().then(setNasDevices).catch((err) => console.error('[settings] fetch nas:', err))
+  }, [])
+
+  const fetchCredentials = useCallback(() => {
+    getCredentials().then(setCredentials).catch((err) => console.error('[settings] fetch credentials:', err))
+  }, [])
+
   useEffect(() => {
     fetchManaged()
     fetchCloud()
+    fetchNas()
+    fetchCredentials()
     const timer = setInterval(() => {
       fetchManaged()
       fetchCloud()
+      fetchNas()
     }, 15000)
     return () => clearInterval(timer)
-  }, [fetchManaged, fetchCloud])
+  }, [fetchManaged, fetchCloud, fetchNas, fetchCredentials])
+
+  const sshCredentials = credentials.filter((c) => c.type === 'ssh_password' || c.type === 'ssh_key')
+
+  const openNasAdd = () => {
+    setEditingNas(null)
+    setNasForm({ name: '', nas_type: 'synology', host: '', port: 22, ssh_user: 'root', credential_id: sshCredentials[0]?.id ?? 0, collect_interval: 60 })
+    setNasTestResult(null)
+    setShowNasDialog(true)
+  }
+
+  const openNasEdit = (d: NasDevice) => {
+    setEditingNas(d)
+    setNasForm({ name: d.name, nas_type: d.nas_type, host: d.host, port: d.port, ssh_user: d.ssh_user, credential_id: d.credential_id, collect_interval: d.collect_interval })
+    setNasTestResult(null)
+    setShowNasDialog(true)
+  }
+
+  const handleNasTest = async () => {
+    if (!nasForm.host || !nasForm.credential_id) return
+    setNasTestLoading(true)
+    setNasTestResult(null)
+    try {
+      const result = await testNasConnection({ host: nasForm.host, port: nasForm.port, ssh_user: nasForm.ssh_user, credential_id: nasForm.credential_id })
+      setNasTestResult(result)
+    } catch (err) {
+      setNasTestResult({ ok: false, error: String(err) })
+    } finally {
+      setNasTestLoading(false)
+    }
+  }
+
+  const handleNasSave = async () => {
+    if (!nasForm.name || !nasForm.host || !nasForm.credential_id) return
+    setNasSaving(true)
+    try {
+      if (editingNas) {
+        await updateNasDevice(editingNas.id, nasForm)
+      } else {
+        await createNasDevice(nasForm)
+      }
+      setShowNasDialog(false)
+      fetchNas()
+    } catch (err) {
+      console.error('[settings] nas save:', err)
+    } finally {
+      setNasSaving(false)
+    }
+  }
+
+  const handleNasDelete = async (id: number) => {
+    await deleteNasDevice(id)
+    setDeleteNasTarget(null)
+    fetchNas()
+  }
+
+  const NAS_TYPE_LABELS: Record<string, string> = { synology: 'Synology', fnos: 'fnOS' }
+  const NAS_STATUS_COLOR: Record<string, string> = {
+    online: '#0ab39c',
+    offline: '#f06548',
+    degraded: '#f7b84b',
+    unknown: '#adb5bd',
+  }
 
   const handleDeleteManaged = async (id: number) => {
     await deleteManagedServer(id)
@@ -172,7 +287,7 @@ export default function Settings() {
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">Logo URL</label>
+            <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">Logo</label>
             <div className="flex items-center gap-3">
               <img src={editLogo || '/logo.svg'} alt="Preview" className="w-8 h-8 rounded object-contain bg-[#f8f9fa] p-1 flex-shrink-0" />
               <input
@@ -182,15 +297,41 @@ export default function Settings() {
                 placeholder="/logo.svg"
                 className="flex-1 border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white font-mono"
               />
+              <label className="flex items-center gap-1.5 px-3 py-2 text-[13px] border border-[#e9ebec] text-[#495057] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded-[8px] transition-colors cursor-pointer flex-shrink-0">
+                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>upload</span>
+                上传
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    if (file.size > 512 * 1024) {
+                      alert('图片大小不能超过 512KB')
+                      return
+                    }
+                    const reader = new FileReader()
+                    reader.onload = () => {
+                      if (typeof reader.result === 'string') {
+                        setEditLogo(reader.result)
+                      }
+                    }
+                    reader.readAsDataURL(file)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
             </div>
           </div>
           <div className="sm:col-span-2 flex items-center gap-3">
             <button
               onClick={handleSaveSettings}
-              className="flex items-center gap-1.5 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors"
+              disabled={settingsSaving}
+              className="flex items-center gap-1.5 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors disabled:opacity-50"
             >
               <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>save</span>
-              保存配置
+              {settingsSaving ? '保存中...' : '保存配置'}
             </button>
             {settingsSaved && (
               <span className="text-[12px] text-[#0ab39c] flex items-center gap-1">
@@ -246,6 +387,100 @@ export default function Settings() {
               添加云账号
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ── NAS 设备 ── */}
+      <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
+            <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">hard_drive</span>
+          </div>
+          <h2 className="text-base font-semibold text-[#495057]">NAS 设备</h2>
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#2ca07a]/10 text-[#2ca07a] font-semibold">
+            {nasDevices.length}
+          </span>
+          <div className="ml-auto">
+            <button
+              onClick={openNasAdd}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>add</span>
+              添加 NAS
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#f8f9fa]">
+                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">状态</th>
+                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">名称</th>
+                <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">类型</th>
+                <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">地址</th>
+                <th className="hidden md:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">SSH 用户</th>
+                <th className="hidden md:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">采集间隔</th>
+                <th className="text-right text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {nasDevices.map((d, idx) => (
+                <tr
+                  key={d.id}
+                  className={`hover:bg-[#f8f9fa] transition-colors ${idx < nasDevices.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
+                >
+                  <td className="px-5 py-3.5">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: NAS_STATUS_COLOR[d.status] ?? '#adb5bd' }}
+                      title={d.status}
+                    />
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="text-[#495057] font-medium text-sm">{d.name}</span>
+                  </td>
+                  <td className="hidden sm:table-cell px-5 py-3.5">
+                    <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-[#2ca07a]/10 text-[#2ca07a]">
+                      {NAS_TYPE_LABELS[d.nas_type] ?? d.nas_type}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="text-[12px] font-mono text-[#495057]">{d.host}:{d.port}</span>
+                  </td>
+                  <td className="hidden md:table-cell px-5 py-3.5">
+                    <span className="text-[12px] text-[#878a99]">{d.ssh_user}</span>
+                  </td>
+                  <td className="hidden md:table-cell px-5 py-3.5">
+                    <span className="text-[12px] text-[#878a99]">{d.collect_interval} 秒</span>
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => openNasEdit(d)}
+                        className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded transition-colors"
+                      >
+                        编辑
+                      </button>
+                      <button
+                        onClick={() => setDeleteNasTarget(d)}
+                        className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#f06548] hover:text-[#f06548] rounded transition-colors"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {nasDevices.length === 0 && (
+            <div className="py-10 text-center">
+              <span className="material-symbols-outlined text-3xl text-[#ced4da] mb-2 block">hard_drive</span>
+              <p className="text-[#878a99] text-sm">暂无 NAS 设备</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -480,35 +715,59 @@ export default function Settings() {
                 <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">主机名</th>
                 <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">主机 ID</th>
                 <th className="hidden sm:table-cell text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">版本</th>
+                <th className="hidden md:table-cell text-center text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">Docker</th>
+                <th className="hidden md:table-cell text-center text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">GPU</th>
                 <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">最后心跳</th>
                 <th className="text-center text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">状态</th>
+                <th className="text-center text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">操作</th>
               </tr>
             </thead>
             <tbody>
-              {servers.map((s, idx) => (
-                <tr
-                  key={s.host_id}
-                  className={`hover:bg-[#f8f9fa] transition-colors ${idx < servers.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
-                >
-                  <td className="px-5 py-3.5">
-                    <span className="text-[#495057] font-medium text-sm">{s.hostname}</span>
-                  </td>
-                  <td className="hidden sm:table-cell px-5 py-3.5">
-                    <span className="text-[11px] font-mono bg-[#f3f6f9] text-[#495057] px-2 py-0.5 rounded">
-                      {s.host_id}
-                    </span>
-                  </td>
-                  <td className="hidden sm:table-cell px-5 py-3.5">
-                    <span className="text-[12px] text-[#878a99]">{s.agent_version || '-'}</span>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <span className="text-[12px] text-[#878a99]">{s.last_seen ? timeSince(s.last_seen) : '-'}</span>
-                  </td>
-                  <td className="px-5 py-3.5 text-center">
-                    <StatusBadge status={s.status} label={s.status === 'online' ? '在线' : '离线'} />
-                  </td>
-                </tr>
-              ))}
+              {servers.map((s, idx) => {
+                const m = metrics[s.host_id]
+                const hasDocker = m?.containers !== undefined
+                const hasGpu = !!s.gpu_model
+                return (
+                  <tr
+                    key={s.host_id}
+                    className={`hover:bg-[#f8f9fa] transition-colors ${idx < servers.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
+                  >
+                    <td className="px-5 py-3.5">
+                      <span className="text-[#495057] font-medium text-sm">{s.display_name || s.hostname}</span>
+                    </td>
+                    <td className="hidden sm:table-cell px-5 py-3.5">
+                      <span className="text-[11px] font-mono bg-[#f3f6f9] text-[#495057] px-2 py-0.5 rounded">
+                        {s.host_id}
+                      </span>
+                    </td>
+                    <td className="hidden sm:table-cell px-5 py-3.5">
+                      <span className="text-[12px] text-[#878a99]">{s.agent_version || '-'}</span>
+                    </td>
+                    <td className="hidden md:table-cell px-5 py-3.5 text-center">
+                      <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${hasDocker ? 'bg-[#0ab39c]/10 text-[#0ab39c]' : 'bg-[#878a99]/10 text-[#878a99]'}`}>
+                        {hasDocker ? '采集中' : '未开启'}
+                      </span>
+                    </td>
+                    <td className="hidden md:table-cell px-5 py-3.5 text-center">
+                      <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${hasGpu ? 'bg-[#0ab39c]/10 text-[#0ab39c]' : 'bg-[#878a99]/10 text-[#878a99]'}`}>
+                        {hasGpu ? s.gpu_model : '无'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-[12px] text-[#878a99]">{s.last_seen ? timeSince(s.last_seen) : '-'}</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-center">
+                      <StatusBadge status={s.status} label={s.status === 'online' ? '在线' : '离线'} />
+                    </td>
+                    <td className="px-5 py-3.5 text-center">
+                      <Link to={`/servers/${s.host_id}`}
+                        className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded transition-colors">
+                        详情
+                      </Link>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
 
@@ -520,6 +779,198 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* ── NAS 添加/编辑对话框 ── */}
+      {showNasDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowNasDialog(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-[520px] max-w-[92vw] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">hard_drive</span>
+              </div>
+              <h3 className="text-sm font-semibold text-[#495057]">{editingNas ? '编辑 NAS 设备' : '添加 NAS 设备'}</h3>
+            </div>
+            <div className="px-5 py-4 grid grid-cols-2 gap-4">
+              {/* 名称 */}
+              <div className="col-span-2">
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">名称 <span className="text-[#f06548]">*</span></label>
+                <input
+                  type="text"
+                  value={nasForm.name}
+                  onChange={(e) => setNasForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="我的 NAS"
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors"
+                />
+              </div>
+              {/* NAS 类型 */}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">NAS 类型</label>
+                <select
+                  value={nasForm.nas_type}
+                  onChange={(e) => setNasForm((f) => ({ ...f, nas_type: e.target.value as 'synology' | 'fnos' }))}
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white"
+                >
+                  <option value="synology">Synology</option>
+                  <option value="fnos">fnOS</option>
+                </select>
+              </div>
+              {/* 采集间隔 */}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">采集间隔（秒，≥30）</label>
+                <input
+                  type="number"
+                  min={30}
+                  value={nasForm.collect_interval}
+                  onChange={(e) => setNasForm((f) => ({ ...f, collect_interval: Math.max(30, parseInt(e.target.value) || 60) }))}
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors"
+                />
+              </div>
+              {/* 地址 */}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">地址 <span className="text-[#f06548]">*</span></label>
+                <input
+                  type="text"
+                  value={nasForm.host}
+                  onChange={(e) => setNasForm((f) => ({ ...f, host: e.target.value }))}
+                  placeholder="192.168.1.100"
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors font-mono"
+                />
+              </div>
+              {/* SSH 端口 */}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">SSH 端口</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={nasForm.port}
+                  onChange={(e) => setNasForm((f) => ({ ...f, port: parseInt(e.target.value) || 22 }))}
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors"
+                />
+              </div>
+              {/* SSH 用户 */}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">SSH 用户</label>
+                <input
+                  type="text"
+                  value={nasForm.ssh_user}
+                  onChange={(e) => setNasForm((f) => ({ ...f, ssh_user: e.target.value }))}
+                  placeholder="root"
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors"
+                />
+              </div>
+              {/* SSH 凭据 */}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">SSH 凭据 <span className="text-[#f06548]">*</span></label>
+                {sshCredentials.length > 0 ? (
+                  <select
+                    value={nasForm.credential_id}
+                    onChange={(e) => setNasForm((f) => ({ ...f, credential_id: parseInt(e.target.value) }))}
+                    className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors bg-white"
+                  >
+                    <option value={0} disabled>请选择凭据</option>
+                    {sshCredentials.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.type === 'ssh_key' ? '密钥' : '密码'})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="border border-[#e9ebec] rounded-[8px] px-3 py-2 text-[12px] text-[#878a99]">
+                    暂无 SSH 凭据
+                  </div>
+                )}
+                <p className="mt-1 text-[11px] text-[#adb5bd]">
+                  只显示 SSH 密码和密钥类型的凭据。
+                  <Link to="/settings" className="text-[#2ca07a] hover:underline ml-1">新建 SSH 凭据</Link>
+                </p>
+              </div>
+              {/* 测试连接按钮 + 结果 */}
+              <div className="col-span-2">
+                <button
+                  onClick={handleNasTest}
+                  disabled={nasTestLoading || !nasForm.host || !nasForm.credential_id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] border border-[#ced4da] text-[#495057] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {nasTestLoading ? (
+                    <span className="w-3 h-3 border border-[#2ca07a]/40 border-t-[#2ca07a] rounded-full animate-spin flex-shrink-0" />
+                  ) : (
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>network_check</span>
+                  )}
+                  {nasTestLoading ? '测试中...' : '测试连接'}
+                </button>
+                {nasTestResult && (
+                  <div className={`mt-2 px-3 py-2 rounded-[6px] text-[12px] ${nasTestResult.ok ? 'bg-[#0ab39c]/08 text-[#0ab39c] border border-[#0ab39c]/20' : 'bg-[#f06548]/08 text-[#f06548] border border-[#f06548]/20'}`}>
+                    {nasTestResult.ok ? (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
+                          连接成功
+                        </span>
+                        {nasTestResult.detected_type && (
+                          <span>检测类型：{nasTestResult.detected_type}</span>
+                        )}
+                        {nasTestResult.smart_available !== undefined && (
+                          <span>smartctl：{nasTestResult.smart_available ? '可用' : '不可用'}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>error</span>
+                        {nasTestResult.error ?? '连接失败'}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-[#e9ebec] flex justify-end gap-2">
+              <button
+                onClick={() => setShowNasDialog(false)}
+                className="text-xs px-4 py-2 border border-[#ced4da] text-[#878a99] rounded-lg hover:bg-[#f8f9fa] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleNasSave}
+                disabled={nasSaving || !nasForm.name || !nasForm.host || !nasForm.credential_id}
+                className="text-xs px-4 py-2 bg-[#2ca07a] text-white rounded-lg hover:bg-[#248a69] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {nasSaving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── NAS 删除确认 ── */}
+      {deleteNasTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDeleteNasTarget(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-[400px] max-w-[90vw] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#f06548]/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[#f06548] text-[16px]">delete</span>
+              </div>
+              <h3 className="text-sm font-semibold text-[#495057]">删除 NAS 设备</h3>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-sm text-[#495057]">确定要删除 <span className="font-semibold">{deleteNasTarget.name}</span> 吗？此操作不可撤销。</p>
+            </div>
+            <div className="px-5 py-3 border-t border-[#e9ebec] flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteNasTarget(null)}
+                className="text-xs px-4 py-2 border border-[#ced4da] text-[#878a99] rounded-lg hover:bg-[#f8f9fa] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleNasDelete(deleteNasTarget.id)}
+                className="text-xs px-4 py-2 bg-[#f06548] text-white rounded-lg hover:bg-[#d9533a] transition-colors"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 重试确认对话框 ── */}
       {retryTarget && (
