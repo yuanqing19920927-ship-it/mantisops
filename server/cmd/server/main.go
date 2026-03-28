@@ -125,7 +125,7 @@ func main() {
 
 	// 10. Alert system
 	alertStore := store.NewAlertStore(db)
-	alerter := alert.NewAlerter(alertStore, hub, mc, prober, serverStore)
+	alerter := alert.NewAlerter(alertStore, hub, mc, prober, serverStore, nasCollector)
 	alerter.Start()
 	defer alerter.Stop()
 	alertHandler := api.NewAlertHandler(alertStore, alerter)
