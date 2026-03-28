@@ -1079,8 +1079,11 @@ git commit -m "feat(auth): Hub per-connection permission filtering + typed broad
 | ProbeHandler | List, Status | Probes |
 | AssetHandler | List | Servers（asset.server_id → server.host_id） |
 | DatabaseHandler | List, Get | Databases |
-| AlertHandler | ListEvents, ListRules | 按 target_id 映射到 Servers/Probes（查后过滤） |
-| AlertHandler | GetEventNotifications | 先查事件的 target_id，检查用户是否有权访问该目标，无权返回 403。有权则正常返回通知投递详情 |
+| AlertHandler | ListEvents | 按 target_id 映射到 Servers/Probes（查后过滤，disk/container 需提取冒号前 host_id） |
+| AlertHandler | ListRules | 按 target_id 过滤；全局规则（target_id 为空）所有用户可见（只读） |
+| AlertHandler | CreateRule/UpdateRule/DeleteRule | operator 校验 target_id 在权限范围内；**target_id 为空的全局规则仅 admin 可 CRUD** |
+| AlertHandler | GetEventNotifications | 先查事件 target_id，用 `CanSeeAlertTarget(ruleType, targetID)` 检查权限，无权 403 |
+| AlertHandler | AckEvent | 同上，先检查事件目标是否在权限范围内 |
 | AlertHandler | **GetStats** | **必须 SQL 层过滤**（见下方） |
 | BillingHandler | List | 见下方 Billing 映射说明 |
 | LogHandler | ListRuntime | source 过滤（查后过滤，非 admin 排除 source=server） |
@@ -1124,7 +1127,11 @@ func (ps *PermissionSet) CanSeeServer(hostID string) bool {
 }
 func (ps *PermissionSet) CanSeeProbe(probeID string) bool { ... }
 func (ps *PermissionSet) CanSeeDatabase(hostID string) bool { ... }
-func (ps *PermissionSet) CanSeeAlertTarget(targetType, targetID string) bool { ... }
+func (ps *PermissionSet) CanSeeAlertTarget(ruleType, targetID string) bool {
+    // disk: "host_id:mount" → extract host_id; container: "host_id:name" → extract host_id
+    // probe_down: targetID is probe rule ID → check Probes
+    // others: targetID is host_id → check Servers
+}
 func (ps *PermissionSet) CanSeeLogSource(source string) bool { ... }
 ```
 
