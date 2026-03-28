@@ -169,6 +169,35 @@ func (s *AlertStore) DeleteChannel(id int) error {
 	return err
 }
 
+// FiringAlertTarget holds minimal info for Hub alert target mapping.
+type FiringAlertTarget struct {
+	EventID  int
+	RuleType string
+	TargetID string
+}
+
+// ListFiringAlertTargets returns event_id, rule_type, target_id for all firing alerts.
+func (s *AlertStore) ListFiringAlertTargets() ([]FiringAlertTarget, error) {
+	rows, err := s.db.Query(
+		`SELECT e.id, r.type, e.target_id
+		FROM alert_events e
+		JOIN alert_rules r ON r.id = e.rule_id
+		WHERE e.status = 'firing'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var targets []FiringAlertTarget
+	for rows.Next() {
+		var t FiringAlertTarget
+		if err := rows.Scan(&t.EventID, &t.RuleType, &t.TargetID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, nil
+}
+
 // ---------- Alert Events ----------
 
 func (s *AlertStore) ListFiringEvents() ([]model.AlertEvent, error) {

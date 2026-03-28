@@ -45,8 +45,8 @@ func (c *client) isAdmin() bool {
 	return c.role == "admin"
 }
 
-// alertTarget records target info for filtering resolved/acked broadcasts.
-type alertTarget struct {
+// AlertTarget records target info for filtering resolved/acked broadcasts.
+type AlertTarget struct {
 	RuleType string
 	TargetID string
 }
@@ -55,15 +55,15 @@ type Hub struct {
 	mu           sync.RWMutex
 	clients      map[*client]bool
 	userClients  map[int64][]*client       // user_id → connections
-	alertTargets map[int]alertTarget        // event_id → target info
-	atMu         sync.RWMutex              // protects alertTargets
+	AlertTargets map[int]AlertTarget        // event_id → target info
+	atMu         sync.RWMutex              // protects AlertTargets
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		clients:      make(map[*client]bool),
 		userClients:  make(map[int64][]*client),
-		alertTargets: make(map[int]alertTarget),
+		AlertTargets: make(map[int]AlertTarget),
 	}
 }
 
@@ -141,7 +141,7 @@ func (h *Hub) BroadcastMetrics(hostID string, msg interface{}) {
 // BroadcastAlertFiring broadcasts a new alert and records target info for later resolved/acked.
 func (h *Hub) BroadcastAlertFiring(eventID int, ruleType, targetID string, msg interface{}) {
 	h.atMu.Lock()
-	h.alertTargets[eventID] = alertTarget{RuleType: ruleType, TargetID: targetID}
+	h.AlertTargets[eventID] = AlertTarget{RuleType: ruleType, TargetID: targetID}
 	h.atMu.Unlock()
 
 	h.broadcastFiltered(msg, func(c *client) bool {
@@ -155,7 +155,7 @@ func (h *Hub) BroadcastAlertFiring(eventID int, ruleType, targetID string, msg i
 // BroadcastAlertResolved broadcasts alert resolved, filtered by stored target info.
 func (h *Hub) BroadcastAlertResolved(eventID int, msg interface{}) {
 	h.atMu.RLock()
-	at, ok := h.alertTargets[eventID]
+	at, ok := h.AlertTargets[eventID]
 	h.atMu.RUnlock()
 
 	h.broadcastFiltered(msg, func(c *client) bool {
@@ -170,7 +170,7 @@ func (h *Hub) BroadcastAlertResolved(eventID int, msg interface{}) {
 
 	if ok {
 		h.atMu.Lock()
-		delete(h.alertTargets, eventID)
+		delete(h.AlertTargets, eventID)
 		h.atMu.Unlock()
 	}
 }
@@ -178,7 +178,7 @@ func (h *Hub) BroadcastAlertResolved(eventID int, msg interface{}) {
 // BroadcastAlertAcked broadcasts alert acknowledged, filtered by stored target info.
 func (h *Hub) BroadcastAlertAcked(eventID int, msg interface{}) {
 	h.atMu.RLock()
-	at, ok := h.alertTargets[eventID]
+	at, ok := h.AlertTargets[eventID]
 	h.atMu.RUnlock()
 
 	h.broadcastFiltered(msg, func(c *client) bool {
@@ -223,11 +223,11 @@ func (h *Hub) BroadcastAdmin(msg interface{}) {
 }
 
 // LoadAlertTargets pre-loads firing alert targets on startup.
-func (h *Hub) LoadAlertTargets(targets map[int]alertTarget) {
+func (h *Hub) LoadAlertTargets(targets map[int]AlertTarget) {
 	h.atMu.Lock()
 	defer h.atMu.Unlock()
 	for id, at := range targets {
-		h.alertTargets[id] = at
+		h.AlertTargets[id] = at
 	}
 }
 
