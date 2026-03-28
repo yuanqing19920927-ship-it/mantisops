@@ -246,6 +246,9 @@ func migrate(db *sql.DB) error {
 	if err := migrateV1(db); err != nil {
 		return err
 	}
+	if err := migrateV2(db); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -341,6 +344,110 @@ func migrateV1(db *sql.DB) error {
 
 	// Mark migration complete
 	if _, err := tx.Exec(`INSERT INTO schema_version VALUES(1)`); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func migrateV2(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version >= 2 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	ddl := []string{
+		`CREATE TABLE IF NOT EXISTS ai_reports (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			report_type TEXT NOT NULL,
+			title TEXT NOT NULL,
+			summary TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL DEFAULT '',
+			period_start INTEGER NOT NULL,
+			period_end INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			error_message TEXT DEFAULT '',
+			trigger_type TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			token_usage INTEGER DEFAULT 0,
+			generation_time_ms INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_reports_type_period ON ai_reports(report_type, period_start DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_reports_status ON ai_reports(status)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reports_type_period_unique ON ai_reports(report_type, period_start, period_end) WHERE status = 'completed'`,
+
+		`CREATE TABLE IF NOT EXISTS ai_conversations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT NOT NULL DEFAULT '新对话',
+			user TEXT NOT NULL DEFAULT 'admin',
+			provider TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			message_count INTEGER DEFAULT 0,
+			last_message_at INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user, last_message_at DESC)`,
+
+		`CREATE TABLE IF NOT EXISTS ai_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			conversation_id INTEGER NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'done',
+			error_message TEXT DEFAULT '',
+			request_id TEXT DEFAULT '',
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages(conversation_id, created_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_messages_request_id ON ai_messages(conversation_id, request_id) WHERE request_id != ''`,
+
+		`CREATE TABLE IF NOT EXISTS ai_schedules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			report_type TEXT NOT NULL UNIQUE,
+			enabled INTEGER NOT NULL DEFAULT 0,
+			cron_expr TEXT NOT NULL,
+			last_run_at INTEGER,
+			next_run_at INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+	}
+	for _, s := range ddl {
+		if _, err := tx.Exec(s); err != nil {
+			return err
+		}
+	}
+
+	// Insert default schedule records
+	defaults := []struct{ typ, cron string }{
+		{"daily", "0 7 * * *"},
+		{"weekly", "0 8 * * 1"},
+		{"monthly", "0 8 1 * *"},
+		{"quarterly", "0 8 1 1,4,7,10 *"},
+		{"yearly", "0 8 1 1 *"},
+	}
+	for _, d := range defaults {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO ai_schedules (report_type, cron_expr) VALUES (?, ?)`, d.typ, d.cron); err != nil {
+			return err
+		}
+	}
+
+	// Mark migration complete
+	if _, err := tx.Exec(`INSERT INTO schema_version VALUES(2)`); err != nil {
 		return err
 	}
 
