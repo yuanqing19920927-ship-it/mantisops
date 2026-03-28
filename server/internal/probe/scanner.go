@@ -156,7 +156,7 @@ func (s *Scanner) runScan(taskID string, targets []ScanTarget) {
 					"data": map[string]interface{}{
 						"task_id": taskID,
 						"total":   total,
-						"done":    atomic.LoadInt64(&done),
+						"scanned": atomic.LoadInt64(&done),
 						"found":   atomic.LoadInt64(&found),
 					},
 				})
@@ -170,8 +170,9 @@ func (s *Scanner) runScan(taskID string, targets []ScanTarget) {
 			"type": "scan_complete",
 			"data": map[string]interface{}{
 				"task_id": taskID,
-				"created": created,
-				"skipped": skipped,
+				"open_ports":    found,
+				"rules_created": created,
+				"skipped":       skipped,
 			},
 		})
 	}

@@ -303,7 +303,7 @@ export default function ServerDetail() {
               {cfgSaved && (
                 <span className="text-[12px] text-[#0ab39c] flex items-center gap-1">
                   <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check_circle</span>
-                  已保存
+                  已保存，重新部署 Agent 后生效
                 </span>
               )}
               {!cfgSaved && <span />}

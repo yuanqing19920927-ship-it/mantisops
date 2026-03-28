@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -546,6 +547,8 @@ func (h *AIHandler) TestProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "provider and model are required"})
 		return
 	}
+
+	log.Printf("[ai-test] provider=%s host=%q model=%s", req.Provider, req.Host, req.Model)
 
 	// Create a temporary provider for testing.
 	var prov ai.Provider

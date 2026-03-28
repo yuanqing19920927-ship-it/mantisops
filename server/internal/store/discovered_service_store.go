@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ func (s *DiscoveredServiceStore) SyncServices(hostID string, reported []Discover
 		}
 	}
 
+	var errs []error
 	reportedMap := make(map[string]bool)
 	for _, r := range reported {
 		key := portProtoKey(r.Port, r.Protocol)
@@ -74,21 +76,30 @@ func (s *DiscoveredServiceStore) SyncServices(hostID string, reported []Discover
 		}
 
 		if ex, ok := existingMap[key]; ok {
-			s.db.Exec(`UPDATE discovered_services SET pid=?, name=?, cmd_line=?, bind_addr=?, status='running', asset_id=?, last_seen=? WHERE id=?`,
-				r.PID, r.Name, r.CmdLine, r.BindAddr, assetID, now, ex.ID)
+			if _, err := s.db.Exec(`UPDATE discovered_services SET pid=?, name=?, cmd_line=?, bind_addr=?, status='running', asset_id=?, last_seen=? WHERE id=?`,
+				r.PID, r.Name, r.CmdLine, r.BindAddr, assetID, now, ex.ID); err != nil {
+				errs = append(errs, fmt.Errorf("update service %d: %w", ex.ID, err))
+			}
 		} else {
-			s.db.Exec(`INSERT INTO discovered_services (host_id, pid, name, cmd_line, port, protocol, bind_addr, status, asset_id, first_seen, last_seen)
+			if _, err := s.db.Exec(`INSERT INTO discovered_services (host_id, pid, name, cmd_line, port, protocol, bind_addr, status, asset_id, first_seen, last_seen)
 				VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
-				hostID, r.PID, r.Name, r.CmdLine, r.Port, r.Protocol, r.BindAddr, assetID, now, now)
+				hostID, r.PID, r.Name, r.CmdLine, r.Port, r.Protocol, r.BindAddr, assetID, now, now); err != nil {
+				errs = append(errs, fmt.Errorf("insert service %s/%d: %w", r.Protocol, r.Port, err))
+			}
 		}
 	}
 
 	for key, ex := range existingMap {
 		if !reportedMap[key] && ex.Status == "running" {
-			s.db.Exec("UPDATE discovered_services SET status='stopped', last_seen=? WHERE id=?", now, ex.ID)
+			if _, err := s.db.Exec("UPDATE discovered_services SET status='stopped', last_seen=? WHERE id=?", now, ex.ID); err != nil {
+				errs = append(errs, fmt.Errorf("mark stopped %d: %w", ex.ID, err))
+			}
 		}
 	}
 
+	if len(errs) > 0 {
+		return fmt.Errorf("sync services: %d errors, first: %w", len(errs), errs[0])
+	}
 	return nil
 }
 
