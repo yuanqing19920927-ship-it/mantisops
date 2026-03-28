@@ -212,6 +212,29 @@ func migrate(db *sql.DB) error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_nas_devices_host_port ON nas_devices(host, port)`,
+
+		// Users (multi-user RBAC)
+		`CREATE TABLE IF NOT EXISTS users (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			username        TEXT UNIQUE NOT NULL,
+			password_hash   TEXT NOT NULL,
+			display_name    TEXT DEFAULT '',
+			role            TEXT NOT NULL DEFAULT 'viewer',
+			enabled         BOOLEAN DEFAULT 1,
+			must_change_pwd BOOLEAN DEFAULT 0,
+			token_version   INTEGER DEFAULT 1,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// User resource permissions
+		`CREATE TABLE IF NOT EXISTS user_permissions (
+			id       INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			res_type TEXT NOT NULL,
+			res_id   TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_perm ON user_permissions(user_id, res_type, res_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
