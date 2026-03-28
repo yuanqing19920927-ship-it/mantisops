@@ -18,6 +18,7 @@ import NASDetail from './pages/NAS/NASDetail'
 import Login from './pages/Login'
 import ChangePassword from './pages/ChangePassword'
 import Users from './pages/Users'
+import PermissionTree from './pages/Users/PermissionTree'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/users" element={<Users />} />
+          <Route path="/users/:id/permissions" element={<PermissionTree />} />
         </Route>
       </Routes>
     </BrowserRouter>
