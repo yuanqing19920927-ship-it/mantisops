@@ -308,7 +308,7 @@ func (s *UserStore) Create(username, passwordHash, displayName, role string) (in
 // CreateInitialAdmin creates the migrated admin without must_change_pwd.
 func (s *UserStore) CreateInitialAdmin(username, passwordHash string) (int64, error) {
 	res, err := s.db.Exec(
-		`INSERT INTO users (username, password_hash, display_name, role, must_change_pwd) VALUES (?, ?, ?, 'admin', 0)`,
+		`INSERT INTO users (username, password_hash, role, must_change_pwd) VALUES (?, ?, 'admin', 0)`,
 		username, passwordHash,
 	)
 	if err != nil {
@@ -817,13 +817,46 @@ admin 路由组中注册所有 /users/* 端点。
 
 - [ ] **Step 3: 在 logging/middleware.go 的 auditRoutes 中追加用户管理路由**
 
+现有 `auditRoute` 结构体字段为 `{Method, PathPrefix, Action, ResourceType}`，中间件用 `PathPrefix` 做前缀匹配。注意匹配顺序：**更具体的路径必须排在前面**，否则 `/users/3/reset-pwd` 会被 `/api/v1/users/` 先匹配到。
+
 ```go
-{method: "POST", prefix: "/users", action: "create", resType: "user"},
-{method: "PUT", prefix: "/users/", action: "update", resType: "user"},
-{method: "DELETE", prefix: "/users/", action: "delete", resType: "user"},
-{method: "PUT", suffix: "/reset-pwd", action: "reset_pwd", resType: "user"},
-{method: "PUT", suffix: "/permissions", action: "update", resType: "user_permission"},
+// 用户管理 — 更具体的路径在前
+{"PUT", "/api/v1/users/", "reset_pwd", "user"},       // 匹配 /users/:id/reset-pwd（需在 middleware 内补充 path 包含 "reset-pwd" 的二次判断）
+{"PUT", "/api/v1/users/", "set_permissions", "user"},  // 匹配 /users/:id/permissions（需 path 包含 "permissions" 的二次判断）
+{"POST", "/api/v1/users", "create", "user"},
+{"DELETE", "/api/v1/users/", "delete", "user"},
 ```
+
+由于现有中间件只做前缀匹配，无法区分 `/users/:id`（update）、`/users/:id/reset-pwd`、`/users/:id/permissions` 三种 PUT 操作。需要在 `auditRoute` 结构体中新增可选的 `PathSuffix string` 字段，或者在中间件匹配逻辑中增加后缀检查：
+
+```go
+type auditRoute struct {
+    Method       string
+    PathPrefix   string
+    PathSuffix   string // 新增，可选，用于区分同前缀不同后缀的路由
+    Action       string
+    ResourceType string
+}
+```
+
+匹配逻辑改为：
+```go
+if method != r.Method { continue }
+if !(r.PathPrefix == path || strings.HasPrefix(path, r.PathPrefix)) { continue }
+if r.PathSuffix != "" && !strings.HasSuffix(path, r.PathSuffix) { continue }
+```
+
+新增路由条目（按匹配优先级排列）：
+```go
+{"PUT", "/api/v1/users/", "/reset-pwd", "reset_pwd", "user"},
+{"PUT", "/api/v1/users/", "/permissions", "set_permissions", "user_permission"},
+{"POST", "/api/v1/users", "", "create", "user"},
+{"PUT", "/api/v1/users/", "", "update", "user"},
+{"DELETE", "/api/v1/users/", "", "delete", "user"},
+{"PUT", "/api/v1/auth/password", "", "change_password", "auth"},
+```
+
+现有的其他 auditRoute 条目 PathSuffix 字段留空字符串即可，不影响现有行为。
 
 - [ ] **Step 4: 编译全项目**
 
@@ -849,13 +882,27 @@ git commit -m "feat(auth): add user management API handlers"
 关键变更：
 - `client` 结构体扩展：`userID int64`、`role string`、`permSet *PermissionSet`
 - 新增 `userConns map[int64][]*client` 索引
+- 新增 `alertTargets map[int]alertTarget` — 记录 eventID → {targetType, targetID} 映射，用于 resolved/acked 过滤
 - `HandleWS` 接收 user_id/role/PermissionSet 参数
 - 新增 `BroadcastMetrics(hostID string, msg interface{})` — 遍历连接，admin(permSet==nil)放行，否则检查 Servers[hostID]
-- 新增 `BroadcastAlert(targetType, targetID string, msg interface{})` — 根据 targetType 检查 Servers 或 Probes
+- 新增 `BroadcastAlertFiring(event model.AlertEvent, msg interface{})` — 从 event 取 targetID/type，记录到 alertTargets 映射，按 Servers/Probes 过滤
+- 新增 `BroadcastAlertResolved(eventID int, msg interface{})` — 从 alertTargets 查 targetInfo 做过滤，过滤后清理映射条目
+- 新增 `BroadcastAlertAcked(eventID int, msg interface{})` — 从 alertTargets 查 targetInfo 做过滤
 - 新增 `BroadcastLog(source string, msg interface{})` — admin 放行，否则检查 source 前缀 "agent:{hostID}" 匹配 Servers
+- 新增 `BroadcastAuditLog(msg interface{})` — 仅推送给 admin 连接（role=="admin"）
 - 修改 `BroadcastLogJSON` 增加权限过滤
+- 新增 `BroadcastAdmin(msg interface{})` — 仅推送给 admin 连接，用于 deploy_progress、cloud_sync 等管理事件
 - 新增 `DisconnectUser(userID int64)` — 发送 close frame 并从 clients 移除
 - 新增 `UpdateUserPermissions(userID int64, permSet *PermissionSet)` — 热更新
+
+`alertTarget` 结构：
+```go
+type alertTarget struct {
+    ruleType string // server_offline/cpu/memory/.../probe_down/container
+    targetID string // host_id 或 probe ID
+}
+```
+alertTargets 在 BroadcastAlertFiring 时写入，BroadcastAlertResolved 时读取+删除。内存占用极小（只有 firing 中的事件）。
 
 - [ ] **Step 1: 重写 hub.go**
 
@@ -865,12 +912,21 @@ git commit -m "feat(auth): add user management API handlers"
 
 搜索项目中所有 `hub.BroadcastJSON` 调用，替换为对应的 BroadcastMetrics/BroadcastAlert/BroadcastLog。
 
-涉及文件：
-- `server/internal/collector/metrics_collector.go` — BroadcastJSON → BroadcastMetrics
-- `server/internal/alert/alerter.go` — BroadcastJSON(alert/alert_resolved/alert_acked) → BroadcastAlert
-- `server/internal/logging/manager.go` — BroadcastJSON(log) → BroadcastLog
-- `server/internal/deployer/deployer.go` — BroadcastJSON(deploy_progress) → 保留无过滤（只有 admin 能触发部署）
-- `server/internal/cloud/manager.go` — BroadcastJSON(cloud_sync) → 保留无过滤（只有 admin 能触发同步）
+涉及文件和具体替换：
+
+| 文件 | 原调用 | 替换为 | 说明 |
+|------|--------|--------|------|
+| `collector/metrics.go:93` | `BroadcastJSON({type:metrics, host_id, data})` | `BroadcastMetrics(hostID, msg)` | 按连接可见服务器过滤 |
+| `collector/aliyun.go:722,876` | `BroadcastJSON({type:metrics, host_id, data})` | `BroadcastMetrics(hostID, msg)` | 阿里云 ECS/RDS 指标同理 |
+| `alert/alerter.go:182` | `BroadcastJSON({type:alert, data:event})` | `BroadcastAlertFiring(event, msg)` | 传完整 event 对象，Hub 提取 target 信息并记录映射 |
+| `alert/alerter.go:197,276,417` | `BroadcastJSON({type:alert_resolved, data:{id:N}})` | `BroadcastAlertResolved(eventID, msg)` | Hub 从 alertTargets 映射查目标做过滤 |
+| `alert/alerter.go:399` | `BroadcastJSON({type:alert_acked, data:{id,acked_by}})` | `BroadcastAlertAcked(eventID, msg)` | 同上 |
+| `logging/manager.go:277` | `BroadcastJSON({type:audit_log, data:line})` | `BroadcastAuditLog(msg)` | **仅推给 admin 连接** |
+| `probe/prober.go:131` | `BroadcastJSON({type:metrics, host_id, data})` | `BroadcastMetrics(hostID, msg)` | 探测结果按服务器过滤 |
+| `deployer/deployer.go:498` | `BroadcastJSON({type:deploy_progress})` | `BroadcastAdmin(msg)` | 部署进度仅 admin 可见 |
+| `cloud/manager.go:184` | `BroadcastJSON({type:cloud_sync_progress})` | `BroadcastAdmin(msg)` | 云同步进度仅 admin 可见 |
+
+注意：`BroadcastJSON` 方法完全废弃删除，确保不遗漏调用点。
 
 - [ ] **Step 3: 更新 router.go 中 HandleWS 调用**
 
@@ -920,11 +976,23 @@ git commit -m "feat(auth): Hub per-connection permission filtering + typed broad
 | ProbeHandler | List, Status | Probes |
 | AssetHandler | List | Servers（asset.server_id → server.host_id） |
 | DatabaseHandler | List, Get | Databases |
-| AlertHandler | ListEvents, GetStats, ListRules | 按 target_id 映射到 Servers/Probes |
+| AlertHandler | ListEvents, ListRules | 按 target_id 映射到 Servers/Probes（查后过滤） |
+| AlertHandler | **GetStats** | **必须 SQL 层过滤**（见下方） |
 | BillingHandler | List | Servers + Databases |
-| LogHandler | ListRuntime, Export, Sources, Stats | source 过滤（非 admin 排除 source=server） |
+| LogHandler | ListRuntime, Export | source 过滤（查后过滤） |
+| LogHandler | **Sources, Stats** | **必须 SQL 层过滤**（见下方） |
 
-实现方式：写一个 helper 函数 `getPermissionSet(c *gin.Context, pc *PermissionCache) *PermissionSet`，返回 nil 表示 admin（不过滤），非 nil 表示需要过滤。各 handler 在查询结果后调用 `ps.FilterServers(list)` 等方法。
+实现方式分两类：
+
+**1. 列表接口（查后过滤）：**
+写一个 helper 函数 `getPermissionSet(c *gin.Context, pc *PermissionCache) *PermissionSet`，返回 nil 表示 admin（不过滤），非 nil 表示需要过滤。各 handler 在查询结果后调用 `ps.CanSeeXxx()` 方法过滤。
+
+**2. 聚合接口（SQL 层过滤）：**
+聚合查询不能查完再过滤，否则统计数字错误。需要在 SQL WHERE 中注入 target_id IN (?) 或 source IN (?) 条件。
+
+- `AlertStore.GetStats()` → 新增 `GetStatsFiltered(targetIDs []string)` 方法，WHERE 条件加 `target_id IN (?,?,...)`。targetIDs 由 PermissionSet 的 Servers + Probes 集合展开为列表传入。admin 调用原无过滤版本。
+- `LogStore.GetStats()` → 新增 `GetStatsFiltered(sources []string)` 方法，WHERE 条件加 `source IN (?,?,...)`。sources 由 PermissionSet 的 Servers 展开为 `["agent:srv-69-ai", "agent:srv-71-opsboard", ...]` 传入。admin 调用原无过滤版本。
+- `LogStore.GetSources()` → 同理新增 `GetSourcesFiltered(sources []string)`。
 
 - [ ] **Step 1: 在 permission.go 中添加 PermissionSet 的 filter helper 方法**
 
@@ -970,29 +1038,40 @@ git commit -m "feat(auth): resource-level filtering for all list handlers"
 
 ---
 
-### Task 9: operator 创建 probe/alert_rule 自动归属
+### Task 9: operator 创建 probe 自动归属 + 删除清理
 
 **Files:**
-- Modify: `server/internal/api/probe_handler.go`（Create 方法）
-- Modify: `server/internal/api/alert_handler.go`（CreateRule 方法）
+- Modify: `server/internal/api/probe_handler.go`（Create, Delete 方法）
+- Modify: `server/internal/store/user_store.go`（新增 RemovePermissionByResource 方法）
+
+注意：**告警规则不需要独立权限记录**。告警规则的可见性通过 `target_id` 映射到 server/probe 维度过滤——规则的 target_id 如果在用户可见的服务器或探测规则范围内，该规则就可见。所以 operator 创建告警规则后，只要规则的 target 在其权限范围内，规则自然可见，无需额外处理。
+
+只有 **probe** 需要自动归属，因为 probe 是独立权限维度。
 
 - [ ] **Step 1: ProbeHandler.Create — 创建后自动添加权限**
 
-在 probe 创建成功后，如果 `role != "admin"`，调用 `userStore.AddPermission(userID, "probe", strconv.Itoa(probeID))`。
+在 probe 创建成功后，如果 `role != "admin"`，调用 `userStore.AddPermission(userID, "probe", strconv.Itoa(probeID))`，并清除该用户的 PermissionCache。
 
-- [ ] **Step 2: AlertHandler.CreateRule — 同上逻辑**
+- [ ] **Step 2: 删除时清理权限记录**
 
-- [ ] **Step 3: 删除时清理权限记录**
+ProbeHandler.Delete 中，删除成功后调用 `userStore.RemovePermissionByResource("probe", probeID)` 清理所有用户的该 probe 权限记录（避免悬空记录），并调用 `permCache.InvalidateAll()`。
 
-ProbeHandler.Delete 和 AlertHandler.DeleteRule 中，删除成功后调用 `userStore.RemovePermission` 清理所有用户的该资源权限记录（避免悬空记录）。
+```go
+// user_store.go 新增：
+func (s *UserStore) RemovePermissionByResource(resType, resID string) error {
+    _, err := s.db.Exec(
+        `DELETE FROM user_permissions WHERE res_type = ? AND res_id = ?`,
+        resType, resID,
+    )
+    return err
+}
+```
 
-实际上更简单的做法：直接 `DELETE FROM user_permissions WHERE res_type = ? AND res_id = ?`（不限定 user_id）。
-
-- [ ] **Step 4: 编译验证 + 提交**
+- [ ] **Step 3: 编译验证 + 提交**
 
 ```bash
-git add server/internal/api/probe_handler.go server/internal/api/alert_handler.go
-git commit -m "feat(auth): auto-grant probe/alert permissions to operator creator"
+git add server/internal/api/probe_handler.go server/internal/store/user_store.go
+git commit -m "feat(auth): auto-grant probe permissions to operator creator, cleanup on delete"
 ```
 
 ---
