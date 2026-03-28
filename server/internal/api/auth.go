@@ -8,15 +8,56 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+	"mantisops/server/internal/store"
 )
 
+// --- Token Version Cache ---
+
+type TokenVersionCache struct {
+	mu    sync.RWMutex
+	cache map[int64]int64
+	us    *store.UserStore
+}
+
+func NewTokenVersionCache(us *store.UserStore) *TokenVersionCache {
+	return &TokenVersionCache{cache: make(map[int64]int64), us: us}
+}
+
+func (c *TokenVersionCache) Get(userID int64) (int64, error) {
+	c.mu.RLock()
+	if v, ok := c.cache[userID]; ok {
+		c.mu.RUnlock()
+		return v, nil
+	}
+	c.mu.RUnlock()
+
+	v, err := c.us.GetTokenVersion(userID)
+	if err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	c.cache[userID] = v
+	c.mu.Unlock()
+	return v, nil
+}
+
+func (c *TokenVersionCache) Invalidate(userID int64) {
+	c.mu.Lock()
+	delete(c.cache, userID)
+	c.mu.Unlock()
+}
+
+// --- Auth Handler ---
+
 type AuthHandler struct {
-	username  string
-	password  string
+	userStore *store.UserStore
 	jwtSecret []byte
+	tvCache   *TokenVersionCache
 }
 
 type loginRequest struct {
@@ -25,12 +66,16 @@ type loginRequest struct {
 }
 
 type jwtPayload struct {
-	Username string `json:"username"`
-	Exp      int64  `json:"exp"`
+	UserID        int64  `json:"user_id"`
+	Username      string `json:"username"`
+	Role          string `json:"role"`
+	TokenVersion  int64  `json:"token_version"`
+	MustChangePwd bool   `json:"must_change_pwd"`
+	Exp           int64  `json:"exp"`
 }
 
-func NewAuthHandler(username, password, secret string) *AuthHandler {
-	return &AuthHandler{username: username, password: password, jwtSecret: []byte(secret)}
+func NewAuthHandler(userStore *store.UserStore, secret string, tvCache *TokenVersionCache) *AuthHandler {
+	return &AuthHandler{userStore: userStore, jwtSecret: []byte(secret), tvCache: tvCache}
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -39,25 +84,97 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	if req.Username != h.username || req.Password != h.password {
+	c.Set("audit_username", req.Username)
+
+	user, err := h.userStore.GetByUsername(req.Username)
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	token, err := h.generateToken(req.Username)
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		return
+	}
+	if !user.Enabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "account disabled"})
+		return
+	}
+
+	token, err := h.generateToken(user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": token, "username": req.Username})
+	c.JSON(http.StatusOK, gin.H{
+		"token":           token,
+		"username":        user.Username,
+		"role":            user.Role,
+		"display_name":    user.DisplayName,
+		"must_change_pwd": user.MustChangePwd,
+	})
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
-	username, exists := c.Get("username")
-	if !exists {
+	userID, _ := c.Get("user_id")
+	user, err := h.userStore.GetByID(userID.(int64))
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"username": username})
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":         user.ID,
+		"username":        user.Username,
+		"role":            user.Role,
+		"display_name":    user.DisplayName,
+		"must_change_pwd": user.MustChangePwd,
+	})
+}
+
+type changePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
+}
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "old_password and new_password required"})
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	user, err := h.userStore.GetByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.OldPassword)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "old password incorrect"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash failed"})
+		return
+	}
+
+	h.userStore.UpdatePassword(userID, string(hash))
+	h.userStore.IncrementTokenVersion(userID)
+	h.tvCache.Invalidate(userID)
+
+	// Re-fetch to get updated fields
+	user, _ = h.userStore.GetByID(userID)
+	token, _ := h.generateToken(user)
+
+	c.JSON(http.StatusOK, gin.H{
+		"token":           token,
+		"username":        user.Username,
+		"role":            user.Role,
+		"display_name":    user.DisplayName,
+		"must_change_pwd": user.MustChangePwd,
+	})
 }
 
 func (h *AuthHandler) JWTMiddleware() gin.HandlerFunc {
@@ -75,14 +192,44 @@ func (h *AuthHandler) JWTMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		// Check token version
+		currentVersion, err := h.tvCache.Get(payload.UserID)
+		if err != nil || payload.TokenVersion < currentVersion {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "token revoked"})
+			c.Abort()
+			return
+		}
+
+		// Must change password interception
+		if payload.MustChangePwd {
+			path := c.Request.URL.Path
+			if !strings.HasSuffix(path, "/auth/me") && !strings.HasSuffix(path, "/auth/password") {
+				c.JSON(http.StatusForbidden, gin.H{"error": "must_change_password"})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Set("username", payload.Username)
+		c.Set("user_id", payload.UserID)
+		c.Set("role", payload.Role)
 		c.Next()
 	}
 }
 
-func (h *AuthHandler) generateToken(username string) (string, error) {
+// --- JWT generation/validation (same HS256 algorithm, extended payload) ---
+
+func (h *AuthHandler) generateToken(user *store.User) (string, error) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	payload := jwtPayload{Username: username, Exp: time.Now().Add(7 * 24 * time.Hour).Unix()}
+	payload := jwtPayload{
+		UserID:        user.ID,
+		Username:      user.Username,
+		Role:          user.Role,
+		TokenVersion:  user.TokenVersion,
+		MustChangePwd: user.MustChangePwd,
+		Exp:           time.Now().Add(7 * 24 * time.Hour).Unix(),
+	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -120,4 +267,13 @@ func (h *AuthHandler) ValidateToken(token string) (*jwtPayload, error) {
 		return nil, fmt.Errorf("token expired")
 	}
 	return &payload, nil
+}
+
+// HashPassword generates a bcrypt hash (exported for use by migration and user_handler).
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
 }
