@@ -194,7 +194,7 @@ func (a *Alerter) fireAlert(rule model.AlertRule, result EvalResult, st *ruleSta
 	event.ID = int(eventID)
 	event.Status = "firing"
 
-	a.hub.BroadcastJSON(map[string]interface{}{
+	a.hub.BroadcastAlertFiring(int(eventID), rule.Type, result.TargetID, map[string]interface{}{
 		"type": "alert",
 		"data": event,
 	})
@@ -209,7 +209,7 @@ func (a *Alerter) resolveAlert(st *ruleState, resolveType string) {
 		return
 	}
 
-	a.hub.BroadcastJSON(map[string]interface{}{
+	a.hub.BroadcastAlertResolved(st.eventID, map[string]interface{}{
 		"type": "alert_resolved",
 		"data": map[string]interface{}{"id": st.eventID},
 	})
@@ -383,7 +383,7 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 			log.Printf("[alerter] resolve gone target event=%d: %v", g.eventID, err)
 			continue
 		}
-		a.hub.BroadcastJSON(map[string]interface{}{
+		a.hub.BroadcastAlertResolved(g.eventID, map[string]interface{}{
 			"type": "alert_resolved",
 			"data": map[string]interface{}{"id": g.eventID},
 		})
@@ -515,7 +515,7 @@ func (a *Alerter) AckEvent(eventID int, username string) error {
 	}
 	a.mu.Unlock()
 
-	a.hub.BroadcastJSON(map[string]interface{}{
+	a.hub.BroadcastAlertAcked(eventID, map[string]interface{}{
 		"type": "alert_acked",
 		"data": map[string]interface{}{"id": eventID, "acked_by": username},
 	})
@@ -533,7 +533,7 @@ func (a *Alerter) OnRuleChanged(ruleID int, resolveType string) {
 	for key, st := range a.states {
 		if strings.HasPrefix(key, prefix) {
 			if st.firing {
-				a.hub.BroadcastJSON(map[string]interface{}{
+				a.hub.BroadcastAlertResolved(st.eventID, map[string]interface{}{
 					"type": "alert_resolved",
 					"data": map[string]interface{}{"id": st.eventID},
 				})

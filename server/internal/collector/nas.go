@@ -299,14 +299,14 @@ func (nc *NasCollector) doCollect(nasID int64, d store.NasDevice, systemInfoColl
 	}
 
 	// 9. Broadcast metrics via WebSocket
-	nc.hub.BroadcastJSON(map[string]interface{}{
+	nc.hub.BroadcastAdmin(map[string]interface{}{
 		"type": "nas_metrics",
 		"data": snap,
 	})
 
 	// 10. Broadcast status change only if status changed
 	if prevStatus != status {
-		nc.hub.BroadcastJSON(map[string]interface{}{
+		nc.hub.BroadcastAdmin(map[string]interface{}{
 			"type": "nas_status",
 			"data": map[string]interface{}{
 				"nas_id": nasID,
@@ -339,7 +339,7 @@ func (nc *NasCollector) recordFailure(nasID int64, errMsg string) {
 	}
 
 	if prevStatus != "offline" {
-		nc.hub.BroadcastJSON(map[string]interface{}{
+		nc.hub.BroadcastAdmin(map[string]interface{}{
 			"type": "nas_status",
 			"data": map[string]interface{}{
 				"nas_id": nasID,

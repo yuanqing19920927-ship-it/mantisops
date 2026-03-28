@@ -719,7 +719,7 @@ func (ac *AliyunCollector) collectRegion(cmsClient *cms.Client, instances []conf
 		ac.metricsCache[hostID] = payload
 		ac.metricsMu.Unlock()
 
-		ac.hub.BroadcastJSON(map[string]interface{}{
+		ac.hub.BroadcastMetrics(hostID, map[string]interface{}{
 			"type":    "metrics",
 			"host_id": hostID,
 			"data":    payload,
@@ -873,7 +873,7 @@ func (ac *AliyunCollector) collectRDS(cmsClient *cms.Client) {
 		}
 
 		// WebSocket 广播 RDS 数据
-		ac.hub.BroadcastJSON(map[string]interface{}{
+		ac.hub.BroadcastMetrics(hostID, map[string]interface{}{
 			"type":    "rds_metrics",
 			"host_id": hostID,
 			"data":    data,

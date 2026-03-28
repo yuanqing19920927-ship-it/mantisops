@@ -128,7 +128,7 @@ func (p *Prober) probeOne(rule model.ProbeRule) {
 	if err := p.vmStore.WriteMetrics(lines); err != nil {
 		log.Printf("probe VM write error: %v", err)
 	}
-	p.hub.BroadcastJSON(map[string]interface{}{
+	p.hub.BroadcastMetrics(result.Host, map[string]interface{}{
 		"type": "probe",
 		"data": result,
 	})
