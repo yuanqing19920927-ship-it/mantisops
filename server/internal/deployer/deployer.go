@@ -440,6 +440,7 @@ WantedBy=default.target
 			startScript := `#!/bin/bash
 pkill -x mantisops-agent 2>/dev/null
 sleep 1
+: > ~/.config/mantisops/agent.log
 nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.config/mantisops/agent.log 2>&1 &
 `
 			if err := sshClient.WriteFile("/tmp/mantisops-start.sh", []byte(startScript), 0755); err != nil {
@@ -487,10 +488,10 @@ nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.
 			// Check if agent process is still running
 			stdout, _, _ := sshClient.Execute("pgrep -x mantisops-agent")
 			if strings.TrimSpace(stdout) == "" {
-				// Agent process died — check logs for error
+				// Agent process died — check recent logs only (--since 2min ago)
 				var errMsg string
 				if hasSudo {
-					logOut, _, _ := sshClient.Execute(sudo("journalctl -u mantisops-agent --no-pager -n 5 2>/dev/null"))
+					logOut, _, _ := sshClient.Execute(sudo("journalctl -u mantisops-agent --no-pager --since '2 min ago' 2>/dev/null"))
 					errMsg = strings.TrimSpace(logOut)
 				} else {
 					logOut, _, _ := sshClient.Execute("tail -5 ~/.config/mantisops/agent.log 2>/dev/null")
@@ -502,16 +503,15 @@ nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.
 				d.fail(managedID, "Agent 启动后异常退出: "+errMsg)
 				return
 			}
-			// Check for gRPC errors in agent log (incompatible proto, auth failure, etc.)
+			// Check for gRPC errors in recent agent log only (--since 2min ago to avoid stale errors)
 			var logOut string
 			if hasSudo {
-				logOut, _, _ = sshClient.Execute(sudo("journalctl -u mantisops-agent --no-pager -n 10 2>/dev/null"))
+				logOut, _, _ = sshClient.Execute(sudo("journalctl -u mantisops-agent --no-pager --since '2 min ago' 2>/dev/null"))
 			} else {
 				logOut, _, _ = sshClient.Execute("tail -10 ~/.config/mantisops/agent.log 2>/dev/null")
 			}
 			if strings.Contains(logOut, "unknown service") || strings.Contains(logOut, "Unimplemented") {
 				d.fail(managedID, "Agent 版本不兼容（proto 服务名不匹配），请更新 build 目录中的 Agent 二进制后重试")
-				// Stop the broken agent
 				if hasSudo {
 					sshClient.Execute(sudo("systemctl stop mantisops-agent 2>/dev/null"))
 				} else {

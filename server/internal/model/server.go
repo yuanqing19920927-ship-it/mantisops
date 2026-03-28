@@ -23,7 +23,9 @@ type Server struct {
 	Source       string    `json:"source"` // "agent" | "managed" | "cloud"
 	DisplayName  string    `json:"display_name"`
 	SortOrder    int       `json:"sort_order"`
-	GroupID      *int      `json:"group_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	GroupID        *int      `json:"group_id"`
+	CollectDocker  *bool     `json:"collect_docker"`
+	CollectGPU     *bool     `json:"collect_gpu"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }

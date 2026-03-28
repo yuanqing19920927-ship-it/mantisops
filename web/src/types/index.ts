@@ -26,6 +26,8 @@ export interface Server {
   display_name: string
   sort_order: number
   group_id?: number | null
+  collect_docker?: boolean | null
+  collect_gpu?: boolean | null
 }
 
 export interface CpuMetrics {

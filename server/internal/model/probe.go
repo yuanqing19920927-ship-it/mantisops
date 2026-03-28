@@ -15,6 +15,7 @@ type ProbeRule struct {
 	IntervalSec  int       `json:"interval_sec"`
 	TimeoutSec   int       `json:"timeout_sec"`
 	Enabled      bool      `json:"enabled"`
+	Source       string    `json:"source"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

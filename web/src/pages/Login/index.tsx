@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -10,7 +10,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const login = useAuthStore((s) => s.login)
   const navigate = useNavigate()
-  const { platformName, platformSubtitle, logoUrl } = useSettingsStore()
+  const { platformName, platformSubtitle, logoUrl, fetchSettings } = useSettingsStore()
+
+  useEffect(() => { fetchSettings() }, [fetchSettings])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

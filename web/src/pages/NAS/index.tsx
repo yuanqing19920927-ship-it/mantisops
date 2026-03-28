@@ -61,7 +61,7 @@ function NasTypeBadge({ type }: { type: NasDevice['nas_type'] }) {
 
 function RaidStatusBadge({ status }: { status: string }) {
   const lower = status.toLowerCase()
-  const isOk = lower === 'normal' || lower === 'healthy' || lower === 'ok'
+  const isOk = lower === 'normal' || lower === 'healthy' || lower === 'ok' || lower === 'active'
   const isDeg = lower.includes('degrad') || lower.includes('rebuild')
   const cls = isOk
     ? 'bg-[rgba(44,160,122,0.1)] text-[#2ca07a]'
@@ -109,7 +109,7 @@ function NasCard({ device, metrics }: NasCardProps) {
   const volumes = metrics?.volumes ?? []
 
   return (
-    <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] border border-[#e9ecef] p-4 flex flex-col gap-3">
+    <Link to={`/nas/${device.id}`} className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] border border-[#e9ecef] p-4 flex flex-col gap-3 hover:shadow-md hover:border-[#2ca07a]/30 transition-all cursor-pointer block">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-2">
@@ -256,7 +256,7 @@ function NasCard({ device, metrics }: NasCardProps) {
       {!metrics && device.status !== 'online' && (
         <div className="text-[11px] text-[#878a99] italic">暂无监控数据</div>
       )}
-    </div>
+    </Link>
   )
 }
 

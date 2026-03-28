@@ -34,3 +34,13 @@ aliyun:
 
 encryption_key: ""            # 必填！64 位 hex 字符串，用于加密存储凭据
                               # 生成方式: openssl rand -hex 32
+
+logging:
+  dir: "./logs"
+  level: "info"               # 最低记录级别: debug / info / warn / error
+  buffer_size: 4096           # 异步写入队列缓冲大小
+  retention:
+    audit_days: 90            # 操作审计保留天数
+    system_days: 30           # 系统日志保留天数
+    agent_days: 7             # Agent 日志保留天数
+  cleanup_hour: 3             # 每天几点执行清理（0-23）

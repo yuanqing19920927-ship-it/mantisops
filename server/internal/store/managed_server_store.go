@@ -164,3 +164,33 @@ func (s *ManagedServerStore) Delete(id int, credStore *CredentialStore) error {
 
 	return nil
 }
+
+// ResolveWaiting marks a "waiting" managed_server as "online" if its agent_host_id matches.
+func (s *ManagedServerStore) ResolveWaiting(agentHostID string) {
+	s.db.Exec(
+		`UPDATE managed_servers SET install_state=?, updated_at=CURRENT_TIMESTAMP
+		 WHERE agent_host_id=? AND install_state=?`,
+		InstallStateOnline, agentHostID, InstallStateWaiting,
+	)
+}
+
+// ResolveAllWaiting scans all "waiting" records and marks them "online" if the agent is registered.
+func (s *ManagedServerStore) ResolveAllWaiting(serverStore *ServerStore) {
+	rows, err := s.db.Query("SELECT id, agent_host_id FROM managed_servers WHERE install_state=?", InstallStateWaiting)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var agentID string
+		if rows.Scan(&id, &agentID) != nil || agentID == "" {
+			continue
+		}
+		srv, err := serverStore.GetByHostID(agentID)
+		if err == nil && srv != nil {
+			s.db.Exec("UPDATE managed_servers SET install_state=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+				InstallStateOnline, id)
+		}
+	}
+}

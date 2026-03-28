@@ -54,6 +54,27 @@ func (s *GroupStore) Delete(id int) error {
 	return err
 }
 
+// BatchUpdateSortOrder updates sort_order for multiple groups in a single transaction.
+func (s *GroupStore) BatchUpdateSortOrder(items []struct{ ID, SortOrder int }) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare("UPDATE server_groups SET sort_order=? WHERE id=?")
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, item := range items {
+		if _, err := stmt.Exec(item.SortOrder, item.ID); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *GroupStore) ListSimple() ([]model.ServerGroup, error) {
 	rows, err := s.db.Query(`SELECT id, name, sort_order FROM server_groups ORDER BY sort_order, id`)
 	if err != nil {

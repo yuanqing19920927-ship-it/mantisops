@@ -9,35 +9,37 @@
 
 ## 功能特性
 
-- **服务器监控** — CPU、内存、磁盘、网络、负载、GPU 实时指标 + 历史趋势
-- **容器监控** — Docker 容器状态、CPU/内存使用
-- **阿里云集成** — ECS 云监控（无需部署 Agent）+ RDS 数据库监控
-- **端口探测** — TCP/HTTP/HTTPS 可用性检测 + SSL 证书到期监控
+- **服务器监控** — CPU、内存、磁盘、网络、负载、GPU 实时指标 + 历史趋势，Docker/GPU 自动检测
 - **NAS 监控** — 群晖/飞牛 NAS 设备监控（RAID、S.M.A.R.T.、存储卷、UPS），SSH 采集
-- **告警引擎** — 16 种告警类型（含 6 种 NAS 告警）+ 钉钉/Webhook 通知
-- **多用户权限** — admin/operator/viewer 三级角色 + 资源级权限（服务器分组/单资源）+ 即时踢下线
-- **资产台账** — 服务器资产信息管理
-- **接入管理** — SSH 一键部署 Agent + 阿里云账号自动发现 ECS/RDS
+- **阿里云集成** — ECS 云监控（无需部署 Agent）+ RDS 数据库监控
+- **端口探测** — TCP/HTTP/HTTPS 可用性检测 + SSL 证书到期监控 + 服务器自动扫描
+- **告警引擎** — 16 种告警类型（含 NAS 告警）+ 钉钉/Webhook 通知
+- **日志中心** — 操作审计 + 结构化运行日志 + 关键字搜索 + 实时尾随 + 导出
+- **AI 分析** — 运维分析报告 + 智能对话
+- **多用户权限** — admin/operator/viewer 三级角色 + 资源级权限 + 即时踢下线
+- **托管业务** — 服务器资产信息管理
+- **接入管理** — SSH 一键部署 Agent（含 sudo 密码支持）+ 阿里云账号自动发现 ECS/RDS
 - **历史趋势** — 基于 VictoriaMetrics 的时序数据存储与查询
-- **分组管理** — 服务器分组与排序
+- **分组管理** — 服务器分组与排序（分组排序 + 组内服务器排序）
 
 ## 架构
 
 ```
-浏览器 → Nginx(:3080) → React SPA
-  ├── /api/v1/* → Go Server(:3100)
+浏览器 → Nginx → React SPA
+  ├── /api/v1/* → Go Server (HTTP)
   ├── /ws       → WebSocket 实时推送
-  └── /vm/*     → VictoriaMetrics(:8428)
+  └── /vm/*     → VictoriaMetrics
 
-Go Server(:3100 HTTP + :3101 gRPC)
-  ├── Agent(gRPC) → 采集本机/远程服务器指标
-  ├── AliyunCollector → 阿里云 ECS/RDS API 采集
+Go Server (HTTP + gRPC)
+  ├── Agent(gRPC)       → 采集本机/远程服务器指标
+  ├── AliyunCollector   → 阿里云 ECS/RDS API 采集
   ├── NasCollector(SSH) → 群晖/飞牛 NAS 指标采集
-  ├── ProbeEngine → 端口/HTTP 探测
-  ├── AlertEngine → 告警规则引擎
-  └── SQLite → 配置与元数据存储
+  ├── ProbeEngine       → 端口/HTTP 探测 + 自动扫描
+  ├── AlertEngine       → 告警规则引擎
+  ├── LogManager        → 结构化日志 + 操作审计
+  └── SQLite            → 配置与元数据存储
 
-VictoriaMetrics(:8428) → 时序数据存储
+VictoriaMetrics → 时序数据存储
 ```
 
 ## 技术栈

@@ -28,6 +28,7 @@ Thumbs.db
 
 # IDE / tools
 .superpowers/
+.claude/
 stitch/
 html/
 

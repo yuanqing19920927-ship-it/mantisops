@@ -44,6 +44,6 @@ func main() {
 		cancel()
 	}()
 
-	log.Printf("agent started, reporting to %s every %ds", cfg.Server.Address, cfg.Collect.Interval)
+	log.Printf("agent started, reporting to %s every %ds (docker=%v, gpu=%v)", cfg.Server.Address, cfg.Collect.Interval, cfg.Collect.Docker, cfg.Collect.GPU)
 	r.RunLoop(ctx)
 }
