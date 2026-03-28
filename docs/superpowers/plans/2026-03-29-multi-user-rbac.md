@@ -506,17 +506,28 @@ git commit -m "feat(auth): add UserStore with CRUD and permissions"
 
 完整代码（保留原有 JWT 签名算法，扩展 payload）：
 
+TokenVersionCache 提取为独立顶层对象（被 AuthHandler 和 UserHandler 共享）：
+```go
+type TokenVersionCache struct {
+	mu    sync.RWMutex
+	cache map[int64]int64
+}
+
+func NewTokenVersionCache() *TokenVersionCache {
+	return &TokenVersionCache{cache: make(map[int64]int64)}
+}
+
+func (c *TokenVersionCache) Get(userID int64) (int64, bool) { ... }
+func (c *TokenVersionCache) Set(userID int64, version int64) { ... }
+func (c *TokenVersionCache) Invalidate(userID int64) { ... }
+```
+
 AuthHandler 结构体改为：
 ```go
 type AuthHandler struct {
 	userStore *store.UserStore
 	jwtSecret []byte
-	tvCache   *TokenVersionCache
-}
-
-type TokenVersionCache struct {
-	mu    sync.RWMutex
-	cache map[int64]int64
+	tvCache   *TokenVersionCache  // 共享引用，非自己创建
 }
 ```
 
@@ -702,6 +713,19 @@ func (pc *PermissionCache) InvalidateAll() {
 }
 ```
 
+**分组变更联动**：以下操作会改变 group→server 映射，导致已缓存的 PermissionSet 中展开的 Servers 集合过期：
+- `PUT /servers/:id/group`（服务器移入/移出分组）
+- `DELETE /groups/:id`（删除分组，组内服务器解绑）
+- 新服务器注册并被自动分组
+
+这些操作发生时，必须：
+1. `permCache.InvalidateAll()` — 清除所有用户的缓存，下次请求重新从 DB 构建
+2. Hub 中所有非 admin 连接的 PermissionSet 也需要热更新 — 通过 `hub.RefreshAllPermissions(permCache)` 方法：遍历所有连接，对非 admin 连接重新从 permCache.Get() 获取新 PermissionSet 并替换
+
+实现点：
+- `GroupHandler.SetServerGroup`、`GroupHandler.Delete` 方法末尾追加 `permCache.InvalidateAll()` + `hub.RefreshAllPermissions(permCache)`
+- gRPC handler 中新服务器注册后，如果有自动分组逻辑，也需要触发（当前没有自动分组，暂不需要）
+
 - [ ] **Step 2: 编译验证**
 
 Run: `cd server && go build ./internal/api/`
@@ -807,9 +831,28 @@ git commit -m "feat(auth): wire up UserStore, migration, and role-based route gr
 4. permCache 失效（如权限/角色变更）
 5. Hub 连接管理（断连或热更新）
 
+**tvCache 共享机制**：`TokenVersionCache` 必须从 `AuthHandler` 中提取为独立的顶层对象，在 `main.go` 中创建后同时注入 `AuthHandler` 和 `UserHandler`。不能把 tvCache 藏在 AuthHandler 内部，否则 UserHandler 无法清缓存。
+
+```go
+// main.go 中：
+tvCache := api.NewTokenVersionCache()
+authHandler := api.NewAuthHandler(userStore, cfg.Auth.JWTSecret, tvCache)
+userHandler := api.NewUserHandler(userStore, tvCache, permCache, hub)
+```
+
+`UserHandler` 构造函数：
+```go
+type UserHandler struct {
+    userStore  *store.UserStore
+    tvCache    *TokenVersionCache
+    permCache  *PermissionCache
+    hub        *ws.Hub
+}
+```
+
 - [ ] **Step 1: 实现 user_handler.go**
 
-（完整代码，含所有 handler 方法和系统不变量校验逻辑）
+（完整代码，含所有 handler 方法、系统不变量校验、tvCache/permCache 失效调用、Hub 断连/热更新调用）
 
 - [ ] **Step 2: 在 router.go 注册路由**
 
@@ -904,6 +947,25 @@ type alertTarget struct {
 ```
 alertTargets 在 BroadcastAlertFiring 时写入，BroadcastAlertResolved 时读取+删除。内存占用极小（只有 firing 中的事件）。
 
+**重启后恢复**：Hub 启动时需要从 DB 预加载所有 `status='firing'` 的事件到 alertTargets 映射。在 main.go 中，Hub 创建后立即调用：
+```go
+// main.go 中 Hub 创建后：
+firingEvents, _ := alertStore.ListFiringEvents() // 新增方法，返回所有 firing 事件
+hub.LoadAlertTargets(firingEvents)                // 预加载映射
+```
+
+`AlertStore.ListFiringEvents()` 新增方法：
+```go
+func (s *AlertStore) ListFiringEvents() ([]model.AlertEvent, error) {
+    // SELECT id, target_id, rule_id FROM alert_events WHERE status='firing'
+    // 还需要 JOIN alert_rules 获取 rule type
+}
+```
+
+`Hub.LoadAlertTargets(events)` 遍历事件，通过 rule_id 查 rule type（可从 events 中关联的 rule_name 推断，或直接传入 rule type），填充 alertTargets 映射。
+
+为避免 Hub 依赖 AlertStore，在 main.go 中查完后传 `[]struct{EventID int; RuleType, TargetID string}` 给 Hub。
+
 - [ ] **Step 1: 重写 hub.go**
 
 （保留现有日志订阅逻辑，扩展连接管理和过滤广播）
@@ -978,9 +1040,26 @@ git commit -m "feat(auth): Hub per-connection permission filtering + typed broad
 | DatabaseHandler | List, Get | Databases |
 | AlertHandler | ListEvents, ListRules | 按 target_id 映射到 Servers/Probes（查后过滤） |
 | AlertHandler | **GetStats** | **必须 SQL 层过滤**（见下方） |
-| BillingHandler | List | Servers + Databases |
-| LogHandler | ListRuntime, Export | source 过滤（查后过滤） |
+| BillingHandler | List | 见下方 Billing 映射说明 |
+| LogHandler | ListRuntime | source 过滤（查后过滤，非 admin 排除 source=server） |
+| LogHandler | **Export** | **type=audit 需 admin 角色检查**（在 handler 开头拦截）；type=runtime 按 source 过滤 |
+| LogHandler | **ListAudit** | **已在 router 中放入 admin 路由组**，但还需在 handler 中二次确认（防止路由变更遗漏） |
 | LogHandler | **Sources, Stats** | **必须 SQL 层过滤**（见下方） |
+
+**Audit REST 收口**：
+- `GET /logs/audit` — 在 router.go 中放入 admin 路由组（RequireRole("admin")）
+- `GET /logs/export` — handler 中检查 `type` 参数：`type=audit` 时检查 `role != "admin"` 直接 403 拒绝。不能仅靠路由组，因为 export 端点同时服务 audit 和 runtime 两种类型
+- `GET /logs/sources` 和 `GET /logs/stats` — 非 admin 时返回的结果自动排除 `source=server` 和审计相关数据
+
+**Billing 资源映射**：
+当前 `BillingItem` 只有云侧 ID（`BillingItem.ID` 是阿里云 instance_id），没有 host_id。需要通过 `cloud_instances` 表做映射：
+- `cloud_instances` 表中 `instance_id → host_id` 提供映射关系
+- BillingHandler.List 方法中，先从 `cloudStore` 加载 `instance_id → host_id` 映射表
+- 过滤逻辑：对每个 BillingItem，通过 `instance_id` 查到 `host_id`，然后：
+  - `type=ecs` → 检查 `ps.CanSeeServer(host_id)`
+  - `type=rds` → 检查 `ps.CanSeeDatabase(host_id)`
+  - `type=ssl` → SSL 证书不关联特定资源，**仅 admin 可见**（SSL 证书包含域名等敏感信息）
+- 需要在 `CloudStore` 新增 `GetInstanceHostIDMap() map[string]string` 方法（instance_id → host_id），或在 BillingHandler 的 refreshLoop 中预构建映射
 
 实现方式分两类：
 
