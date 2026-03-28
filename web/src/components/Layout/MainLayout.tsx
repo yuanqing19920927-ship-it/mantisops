@@ -4,7 +4,9 @@ import { Sidebar } from './Sidebar'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { useAuthStore } from '../../stores/authStore'
 import { useServerStore } from '../../stores/serverStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { NotificationBell } from '../NotificationBell'
+import { ChatButton } from '../AIChat/ChatButton'
 
 interface SearchResult {
   type: 'server' | 'probe' | 'asset'
@@ -16,6 +18,8 @@ interface SearchResult {
 
 export function MainLayout() {
   useWebSocket()
+  const fetchSettings = useSettingsStore((s) => s.fetchSettings)
+  useEffect(() => { fetchSettings() }, [fetchSettings])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -191,6 +195,8 @@ export function MainLayout() {
       <main className="ml-0 md:ml-[250px] pt-[94px] px-6 pb-12 min-h-screen bg-[#f3f3f9]">
         <Outlet />
       </main>
+
+      <ChatButton />
     </div>
   )
 }
