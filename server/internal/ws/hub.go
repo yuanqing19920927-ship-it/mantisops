@@ -33,6 +33,7 @@ type client struct {
 	perm      PermChecker // nil = admin (see all)
 	logSub    bool
 	logFilter string
+	aiStream  map[string]bool // AI stream_id subscription set
 }
 
 func (c *client) writeMessage(msgType int, data []byte) error {
@@ -52,11 +53,16 @@ type AlertTarget struct {
 }
 
 type Hub struct {
-	mu           sync.RWMutex
-	clients      map[*client]bool
-	userClients  map[int64][]*client       // user_id → connections
-	AlertTargets map[int]AlertTarget        // event_id → target info
-	atMu         sync.RWMutex              // protects AlertTargets
+	mu                  sync.RWMutex
+	clients             map[*client]bool
+	userClients         map[int64][]*client       // user_id → connections
+	AlertTargets        map[int]AlertTarget        // event_id → target info
+	atMu                sync.RWMutex              // protects AlertTargets
+	onAIStreamSubscribe func(streamID string)
+}
+
+func (h *Hub) SetOnAIStreamSubscribe(fn func(streamID string)) {
+	h.onAIStreamSubscribe = fn
 }
 
 func NewHub() *Hub {
@@ -105,6 +111,30 @@ func (h *Hub) HandleWSWithAuth(w http.ResponseWriter, r *http.Request, userID in
 				c.mu.Lock()
 				c.logSub = false
 				c.mu.Unlock()
+			case "ai_stream_subscribe":
+				var subMsg struct {
+					StreamID string `json:"stream_id"`
+				}
+				if json.Unmarshal(msg, &subMsg) == nil && subMsg.StreamID != "" {
+					c.mu.Lock()
+					if c.aiStream == nil {
+						c.aiStream = make(map[string]bool)
+					}
+					c.aiStream[subMsg.StreamID] = true
+					c.mu.Unlock()
+					if h.onAIStreamSubscribe != nil {
+						h.onAIStreamSubscribe(subMsg.StreamID)
+					}
+				}
+			case "ai_stream_unsubscribe":
+				var subMsg struct {
+					StreamID string `json:"stream_id"`
+				}
+				if json.Unmarshal(msg, &subMsg) == nil && subMsg.StreamID != "" {
+					c.mu.Lock()
+					delete(c.aiStream, subMsg.StreamID)
+					c.mu.Unlock()
+				}
 			}
 		}
 	}
@@ -292,6 +322,27 @@ func (h *Hub) broadcastFiltered(msg interface{}, filter func(*client) bool) {
 			c.conn.Close()
 		}
 	}
+}
+
+// BroadcastAIStreamJSON sends a message only to clients subscribed to the given stream_id.
+func (h *Hub) BroadcastAIStreamJSON(streamID string, msg interface{}) {
+	h.broadcastFiltered(msg, func(c *client) bool {
+		c.mu.Lock()
+		sub := c.aiStream[streamID]
+		c.mu.Unlock()
+		return sub
+	})
+}
+
+// CleanupAIStream removes a stream_id subscription from all clients.
+func (h *Hub) CleanupAIStream(streamID string) {
+	h.mu.RLock()
+	for c := range h.clients {
+		c.mu.Lock()
+		delete(c.aiStream, streamID)
+		c.mu.Unlock()
+	}
+	h.mu.RUnlock()
 }
 
 // --- Legacy compatibility (kept for BroadcastLogJSON callers during migration) ---
