@@ -33,3 +33,47 @@ aliyun:
   instances: []
 
 encryption_key: "generate-with-openssl-rand-hex-32"
+
+logging:
+  dir: "./logs"
+  level: "info"               # 最低记录级别: debug / info / warn / error
+  buffer_size: 4096           # 异步写入队列缓冲大小
+  retention:
+    audit_days: 90            # 操作审计保留天数
+    system_days: 30           # 系统日志保留天数
+    agent_days: 7             # Agent 日志保留天数
+  cleanup_hour: 3             # 每天几点执行清理（0-23）
+
+# AI 分析模块配置
+ai:
+  enabled: false                          # 是否启用 AI 分析功能
+  active_provider: "claude"               # 当前使用的 LLM 提供商: claude / openai / ollama
+  timezone: "Asia/Shanghai"               # 报告生成使用的时区
+
+  claude:
+    api_key: ""                           # Anthropic API Key
+    report_model: "claude-sonnet-4-20250514"  # 用于生成报告的模型
+    chat_model: "claude-haiku-4-5-20251001"   # 用于对话的模型
+    max_tokens: 8192                      # 最大输出 token 数
+
+  openai:
+    api_key: ""                           # OpenAI API Key
+    base_url: "https://api.openai.com/v1" # API 地址（可替换为兼容接口）
+    report_model: "gpt-4o"               # 用于生成报告的模型
+    chat_model: "gpt-4o-mini"            # 用于对话的模型
+    max_tokens: 8192                      # 最大输出 token 数
+
+  ollama:
+    host: "http://127.0.0.1:11434"       # Ollama 服务地址
+    report_model: ""                      # 用于生成报告的模型（如 llama3）
+    chat_model: ""                        # 用于对话的模型
+    max_tokens: 4096                      # 最大输出 token 数
+
+  report:
+    max_generation_time: 300              # 报告生成最大耗时（秒）
+    max_concurrent: 1                     # 最大并发生成数
+
+  chat:
+    max_history_messages: 20              # 对话上下文最大消息数
+    max_message_length: 4000              # 单条消息最大长度（字符）
+    system_context_refresh: false         # 是否在每轮对话中刷新系统上下文
