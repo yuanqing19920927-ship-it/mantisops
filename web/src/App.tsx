@@ -16,10 +16,18 @@ import Logs from './pages/Logs'
 import NAS from './pages/NAS'
 import NASDetail from './pages/NAS/NASDetail'
 import Login from './pages/Login'
+import ChangePassword from './pages/ChangePassword'
+import Users from './pages/Users'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
   if (!token) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function RequireChangePwd({ children }: { children: React.ReactNode }) {
+  const mustChangePwd = useAuthStore((s) => s.mustChangePwd)
+  if (mustChangePwd) return <Navigate to="/change-password" replace />
   return <>{children}</>
 }
 
@@ -28,7 +36,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route element={<RequireAuth><MainLayout /></RequireAuth>}>
+        <Route path="/change-password" element={<RequireAuth><ChangePassword /></RequireAuth>} />
+        <Route element={<RequireAuth><RequireChangePwd><MainLayout /></RequireChangePwd></RequireAuth>}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/servers" element={<Servers />} />
           <Route path="/servers/:id" element={<ServerDetail />} />
@@ -43,6 +52,7 @@ export default function App() {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/users" element={<Users />} />
         </Route>
       </Routes>
     </BrowserRouter>

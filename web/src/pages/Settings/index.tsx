@@ -83,6 +83,8 @@ export default function Settings() {
     credential_id: 0,
     collect_interval: 60,
   })
+  const [, setNasAuthMode] = useState<'password' | 'credential'>('password')
+  const [, setNasPassword] = useState('')
   const [nasTestResult, setNasTestResult] = useState<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean } | null>(null)
   const [nasTestLoading, setNasTestLoading] = useState(false)
   const [nasSaving, setNasSaving] = useState(false)
@@ -120,7 +122,9 @@ export default function Settings() {
 
   const openNasAdd = () => {
     setEditingNas(null)
-    setNasForm({ name: '', nas_type: 'synology', host: '', port: 22, ssh_user: 'root', credential_id: sshCredentials[0]?.id ?? 0, collect_interval: 60 })
+    setNasForm({ name: '', nas_type: 'synology', host: '', port: 22, ssh_user: 'root', credential_id: 0, collect_interval: 60 })
+    setNasAuthMode('password')
+    setNasPassword('')
     setNasTestResult(null)
     setShowNasDialog(true)
   }
@@ -128,6 +132,8 @@ export default function Settings() {
   const openNasEdit = (d: NasDevice) => {
     setEditingNas(d)
     setNasForm({ name: d.name, nas_type: d.nas_type, host: d.host, port: d.port, ssh_user: d.ssh_user, credential_id: d.credential_id, collect_interval: d.collect_interval })
+    setNasAuthMode('credential')
+    setNasPassword('')
     setNasTestResult(null)
     setShowNasDialog(true)
   }
