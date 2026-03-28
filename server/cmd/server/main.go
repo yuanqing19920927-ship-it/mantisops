@@ -171,14 +171,32 @@ func main() {
 		}
 	}()
 
-	// 14. Auth — 拒绝空凭证启动
-	if cfg.Auth.Username == "" || cfg.Auth.Password == "" {
-		log.Fatalf("FATAL: auth.username and auth.password must be configured (non-empty)")
-	}
+	// 14. Auth — multi-user with bcrypt
 	if cfg.Auth.JWTSecret == "" {
 		log.Fatalf("FATAL: auth.jwt_secret must be configured (non-empty, recommend 32+ random chars)")
 	}
-	authHandler := api.NewAuthHandler(cfg.Auth.Username, cfg.Auth.Password, cfg.Auth.JWTSecret)
+	userStore := store.NewUserStore(db)
+	tvCache := api.NewTokenVersionCache(userStore)
+
+	// Migrate initial admin from server.yaml (one-time)
+	if hasUser, _ := userStore.HasAnyUser(); !hasUser {
+		if cfg.Auth.Username != "" && cfg.Auth.Password != "" {
+			hash, err := api.HashPassword(cfg.Auth.Password)
+			if err != nil {
+				log.Fatalf("hash initial admin password: %v", err)
+			}
+			if _, err := userStore.CreateInitialAdmin(cfg.Auth.Username, hash); err != nil {
+				log.Fatalf("create initial admin: %v", err)
+			}
+			log.Printf("migrated initial admin user '%s' from config", cfg.Auth.Username)
+		} else {
+			log.Printf("WARNING: no users in database and auth.username/password not configured")
+		}
+	}
+
+	permCache := api.NewPermissionCache(userStore, serverStore)
+	_ = permCache // TODO: will be used by UserHandler and resource filtering
+	authHandler := api.NewAuthHandler(userStore, cfg.Auth.JWTSecret, tvCache)
 
 	// 15. Database (RDS) - reads from CloudStore
 	dbHandler := api.NewDatabaseHandler(cloudStore, vmStore)
