@@ -1,6 +1,6 @@
 # MantisOps
 
-轻量级智能运维平台 — 服务器监控、云资源管理、资产台账，未来集成 AI 日志分析与智能运维。
+轻量级智能运维平台 — 服务器监控、云资源管理、资产台账，集成 AI 日志分析与智能运维。
 
 ![License](https://img.shields.io/badge/license-BSL--1.1-blue)
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
