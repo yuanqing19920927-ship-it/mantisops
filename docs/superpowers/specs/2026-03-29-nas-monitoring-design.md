@@ -1,7 +1,7 @@
 # MantisOps NAS 监控模块设计文档
 
 > 日期：2026-03-29
-> 状态：已确认
+> 状态：已确认（rev.2 — 修复审查问题）
 
 ## 一、架构总览
 
@@ -50,14 +50,39 @@ CREATE TABLE nas_devices (
     host TEXT NOT NULL,                    -- IP 或域名
     port INTEGER NOT NULL DEFAULT 22,      -- SSH 端口
     credential_id INTEGER NOT NULL REFERENCES credentials(id),
-    collect_interval INTEGER DEFAULT 60,   -- 采集间隔（秒）
+    collect_interval INTEGER DEFAULT 60,   -- 采集间隔（秒），最小 30 秒，API 层校验
     status TEXT DEFAULT 'unknown',         -- online / offline / degraded / unknown
     last_seen INTEGER,                     -- 最后采集成功的 Unix 时间戳
-    system_info TEXT DEFAULT '{}',         -- JSON：DSM版本/型号/序列号等静态信息
+    system_info TEXT DEFAULT '{}',         -- JSON：见下方 system_info schema
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX idx_nas_devices_host_port ON nas_devices(host, port);
 ```
+
+**建表方式**：使用版本迁移（在现有 `migrate()` 中新增迁移步骤），而非直接 `CREATE TABLE IF NOT EXISTS`，因为项目已有生产部署。
+
+**system_info JSON schema：**
+
+```json
+{
+    "model": "DS920+",              // 硬件型号
+    "serial": "20G0xxx",            // 序列号
+    "os_version": "DSM 7.2-64570", // 系统版本（群晖为 DSM 版本，飞牛为 fnOS 版本）
+    "kernel": "4.4.302+",          // 内核版本
+    "arch": "x86_64",              // 架构
+    "total_memory": 8589934592     // 总内存（字节）
+}
+```
+
+**status 状态判定逻辑：**
+
+| 状态 | 触发条件 |
+|------|---------|
+| `online` | 采集成功且所有 RAID 正常 |
+| `offline` | SSH 连接失败或采集超时 |
+| `degraded` | 采集成功但存在 RAID 降级或硬盘 S.M.A.R.T. 异常 |
+| `unknown` | 初始状态，尚未完成首次采集 |
 
 ### 2.2 VictoriaMetrics 指标命名
 
@@ -160,13 +185,21 @@ func (c *NasCollector) GetMetrics(deviceID int64) *NasMetricsSnapshot
 | 系统信息 | `cat /etc/os-release` | 版本识别 |
 | Btrfs 卷状态 | `btrfs filesystem show && btrfs device stats /` | Btrfs 健康检查 |
 
-### 3.4 采集容错
+### 3.4 SSH 连接管理
+
+- **连接策略**：每次采集新建 SSH 连接，采集完成后关闭。60 秒间隔下长连接收益不大，且增加状态管理复杂度
+- **连接超时**：拨号超时 10 秒，命令执行超时 30 秒
+- **权限要求**：建议以 root 用户或配置了 sudo NOPASSWD 的用户连接。`smartctl`、`btrfs` 等命令需要 root 权限。添加 NAS 时的"测试连接"应验证 `sudo smartctl --version` 是否可执行，不满足时提示用户
+- **错误区分**：区分"网络不可达"（dial timeout）和"认证失败"（auth failed），后者在设置页设备列表中额外显示"凭据失效"提示
+
+### 3.5 采集容错
 
 - SSH 连接失败：标记 `status=offline`，跳过本轮，下轮重试
-- 单条命令失败（如 `smartctl` 无权限）：跳过该指标，其余照常采集
+- 认证失败：标记 `status=offline`，在 system_info 中记录 `"error": "auth_failed"`，前端展示凭据异常提示
+- 单条命令失败（如 `smartctl` 无权限）：跳过该指标，其余照常采集，在日志中记录跳过原因
 - 连续 3 轮全部失败：降低采集频率为 5 分钟，避免无意义重试
 
-### 3.5 指标写入流程
+### 3.6 指标写入流程
 
 ```
 SSH 采集结果
@@ -193,10 +226,10 @@ POST   /api/v1/nas-devices/:id/test     # SSH 连通性测试（不落库）
 ### 4.2 NAS 监控数据（NAS 页面使用）
 
 ```
-GET    /api/v1/nas-devices/:id/metrics  # 最新一次采集的完整指标快照
-GET    /api/v1/nas-devices/:id/smart    # 所有硬盘的 S.M.A.R.T. 详情
-GET    /api/v1/nas-devices/:id/raid     # RAID 阵列详情
+GET    /api/v1/nas-devices/:id/metrics  # 最新一次采集的完整指标快照（含 RAID、硬盘、卷、UPS 全部数据）
 ```
+
+注：第一版只提供 `/metrics` 一个端点返回完整快照。S.M.A.R.T. 和 RAID 详情都包含在 metrics 响应中。如果后续数据量增大或需要独立刷新，再拆分独立端点。
 
 历史趋势图表直接走 VictoriaMetrics 查询（`/vm/api/v1/query_range`），前端拼 PromQL。
 
@@ -244,7 +277,7 @@ GET    /api/v1/nas-devices/:id/raid     # RAID 阵列详情
 ### 5.1 侧边栏菜单
 
 在「服务器」和「数据库」之间新增：
-- **NAS 存储**（图标：`dns`，Material Symbols）
+- **NAS 存储**（图标：`hard_drive`，Material Symbols。注：`dns` 已被「服务器」使用）
 - 路由：`/nas`
 
 ### 5.2 设置页 NAS 管理区块
@@ -352,6 +385,8 @@ NAS 设备                                           [+ 添加 NAS]
 {"type": "nas_status", "nas_id": 1, "status": "degraded"}
 ```
 
+**广播策略**：使用 `BroadcastJSON()` 全量推送给所有连接（与服务器指标一致）。NAS 设备数量少（通常 1-5 台）且采集间隔 60 秒，全量推送的开销可忽略，不需要像日志那样增加订阅机制。
+
 前端 `useWebSocket` hook 新增处理，更新 NAS Zustand store。
 
 ### 5.6 新增前端文件
@@ -376,25 +411,34 @@ web/src/pages/Settings/index.tsx         # 新增 NAS 设备管理区块
 
 复用现有告警引擎，为 NAS 新增告警类型：
 
-| 告警类型 | 触发条件 | 默认级别 |
-|---------|---------|---------|
-| NAS 离线 | 连续 3 轮采集失败 | critical |
-| RAID 降级 | RAID 状态 = degraded | critical |
-| 硬盘 S.M.A.R.T. 异常 | smart_healthy = 0 | critical |
-| 硬盘温度过高 | 温度 > 阈值（默认 55°C） | warning |
-| 存储卷空间不足 | 用量 > 阈值（默认 90%） | warning |
-| UPS 电池供电 | UPS 状态 = 电池供电 | warning |
+| 告警类型 | type 值 | 触发条件 | 默认级别 |
+|---------|---------|---------|---------|
+| NAS 离线 | `nas_offline` | 连续 3 轮采集失败 | critical |
+| RAID 降级 | `nas_raid_degraded` | RAID 状态 = degraded | critical |
+| 硬盘 S.M.A.R.T. 异常 | `nas_disk_smart` | smart_healthy = 0 | critical |
+| 硬盘温度过高 | `nas_disk_temperature` | 温度 > 阈值（默认 55°C） | warning |
+| 存储卷空间不足 | `nas_volume_usage` | 用量 > 阈值（默认 90%） | warning |
+| UPS 电池供电 | `nas_ups_battery` | UPS 状态 = 电池供电 | warning |
 
-实现方式：在现有 `AlertEngine` 的 30 秒评估循环中，增加 NAS 指标的规则评估。告警规则 UI 的"目标类型"下拉新增 `nas` 选项。
+### 6.1 实现路径
+
+现有 `AlertEngine.evaluate()` 与服务器模型深度耦合（遍历 `[]model.Server`，调用 `MetricsProvider` 获取 `*pb.MetricsPayload`）。NAS 需要独立的评估路径：
+
+1. **新增 `NasMetricsProvider` 接口**：由 `NasCollector` 实现，返回 `map[int64]*NasMetricsSnapshot`（所有 NAS 设备的最新指标）
+2. **新增 `evaluateNas()` 方法**：在 `AlertEngine` 的评估循环中，`evaluate()` 之后调用 `evaluateNas()`，遍历所有 NAS 设备，对每台设备评估所有 `nas_*` 类型的规则
+3. **alert_rules 表**：`type` 字段使用 `nas_` 前缀区分（如 `nas_raid_degraded`），`target_id` 格式为 `nas:{id}`（如 `nas:1`）
+4. **cleanupGoneTargets**：新增 NAS 设备清理逻辑，删除 NAS 设备时清理关联的 firing 事件
+5. **告警规则 UI**：目标类型下拉新增 `nas` 选项，选中后 target 列表展示 NAS 设备而非服务器
 
 ## 七、现有代码改造
 
 | 改造项 | 影响范围 |
 |--------|---------|
-| SQLite 建表 | store/sqlite.go 新增 nas_devices 表 |
+| SQLite 建表 | store/sqlite.go 版本迁移新增 nas_devices 表 |
+| 凭据引用计数 | credential_store.go 的 `List()` 和 `Delete()` SQL 需加入 `nas_devices` 表的引用计数，否则被 NAS 引用的凭据会显示 used_by=0 且可被删除 |
 | 路由注册 | router.go 新增 /nas-devices/* 路由 |
 | main.go 初始化 | 创建 NasCollector，注入依赖 |
-| 告警引擎 | alert/engine.go 新增 NAS 告警类型评估 |
+| 告警引擎 | alert/engine.go 新增 evaluateNas() + NasMetricsProvider 接口 + cleanupGoneTargets NAS 分支 |
 | 前端路由 | App.tsx 新增 /nas 和 /nas/:id |
 | 侧边栏 | Sidebar.tsx 新增菜单项 |
 | WebSocket | hub.go 新增 nas_metrics/nas_status 广播，useWebSocket.ts 新增处理 |
