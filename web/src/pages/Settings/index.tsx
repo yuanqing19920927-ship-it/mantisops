@@ -121,10 +121,10 @@ export default function Settings() {
       setAiReportModel(settings.report_model || '')
       setAiChatModel(settings.chat_model || '')
       setAiSchedules(schedules || [])
-      setAiLoaded(true)
-    } catch (err) {
-      console.error('[settings] fetch AI:', err)
+    } catch {
+      // AI 未启用时 API 可能 404，使用默认值即可
     }
+    setAiLoaded(true)
   }, [])
 
   const handleAISave = async () => {

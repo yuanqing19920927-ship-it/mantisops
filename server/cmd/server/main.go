@@ -242,10 +242,10 @@ func main() {
 	settingsStore := store.NewSettingsStore(db)
 	settingsHandler := api.NewSettingsHandler(settingsStore)
 
-	// 21. AI system
-	var aiHandler *api.AIHandler
+	// 21. AI system — settings API always available, report/chat only when enabled
+	aiStore := store.NewAIStore(db)
+	aiHandler := api.NewAIHandler(aiStore, nil, nil, nil, nil, settingsStore, masterKey)
 	if cfg.AI.Enabled {
-		aiStore := store.NewAIStore(db)
 		providerMgr := ai.NewProviderManager(&cfg.AI, settingsStore, masterKey)
 		dataCollector := ai.NewDataCollector(cfg.Victoria.URL, serverStore, alertStore, cfg.AI.Timezone)
 		reporter := ai.NewReporter(aiStore, dataCollector, providerMgr, hub, cfg.AI)
