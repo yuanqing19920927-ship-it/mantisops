@@ -1,7 +1,7 @@
 # MantisOps AI 分析模块设计文档
 
 > 日期：2026-03-29
-> 状态：已确认（rev.4 — 修复崩溃恢复 / 流式竞态 / message_id 语义 / 覆盖安全 / 时区）
+> 状态：已确认（rev.6）
 
 ## 一、架构总览
 
@@ -66,7 +66,7 @@ CREATE TABLE ai_reports (
     report_type TEXT NOT NULL,              -- daily / weekly / monthly / quarterly / yearly
     title TEXT NOT NULL,                    -- 自动生成的标题，如"2026年3月29日 运维日报"
     summary TEXT NOT NULL DEFAULT '',       -- 报告摘要（纯文本，剥离 Markdown 标记后取前 200 字），用于列表页和仪表盘卡片
-    content TEXT NOT NULL,                  -- 完整 Markdown 内容
+    content TEXT NOT NULL DEFAULT '',        -- 完整 Markdown 内容（pending/generating 时为空）
     period_start INTEGER NOT NULL,          -- 报告覆盖的起始时间（Unix 时间戳）
     period_end INTEGER NOT NULL,            -- 报告覆盖的结束时间（Unix 时间戳）
     status TEXT NOT NULL DEFAULT 'pending', -- pending / generating / completed / failed / superseded
@@ -1055,7 +1055,7 @@ ai:
   chat:
     max_history_messages: 20              # 对话最大历史消息数
     max_message_length: 4000             # 单条消息最大 Unicode 字符数
-    system_context_refresh: false         # 每轮是否刷新系统上下文
+    system_context_refresh: false         # true=每轮对话都刷新系统上下文，false=仅超过 1 小时未刷新时自动刷新
 ```
 
 **API Key 存储**：Claude/OpenAI 的 API Key 属于敏感信息。**不复用现有的 credentials 表**（credentials 是面向 SSH/云账号的设备凭据，有 `used_by` 引用计数等机制，与 AI API Key 的使用场景不匹配）。API Key 通过现有的 AES-256-GCM `crypto` 模块加密后存入 `settings` 表（key 为 `ai.claude.api_key` 等），与其他 AI 配置统一管理。server.yaml 中的 api_key 字段仅作为初始导入用途（与阿里云 AK/SK 的处理方式一致）。
