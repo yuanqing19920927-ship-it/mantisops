@@ -12,6 +12,9 @@ import DatabaseDetail from './pages/DatabaseDetail'
 import Billing from './pages/Billing'
 import Alerts from './pages/Alerts'
 import Containers from './pages/Containers'
+import Logs from './pages/Logs'
+import NAS from './pages/NAS'
+import NASDetail from './pages/NAS/NASDetail'
 import Login from './pages/Login'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -31,11 +34,14 @@ export default function App() {
           <Route path="/servers/:id" element={<ServerDetail />} />
           <Route path="/databases" element={<Databases />} />
           <Route path="/databases/:id" element={<DatabaseDetail />} />
+          <Route path="/nas" element={<NAS />} />
+          <Route path="/nas/:id" element={<NASDetail />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/containers" element={<Containers />} />
           <Route path="/probes" element={<Probes />} />
           <Route path="/assets" element={<Assets />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

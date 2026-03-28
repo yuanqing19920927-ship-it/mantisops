@@ -5,11 +5,13 @@ import { useSettingsStore } from '../../stores/settingsStore'
 const links = [
   { to: '/', label: '仪表盘', icon: 'dashboard' },
   { to: '/servers', label: '服务器', icon: 'dns' },
+  { to: '/nas', label: 'NAS 存储', icon: 'hard_drive' },
   { to: '/databases', label: '数据库', icon: 'database' },
   { to: '/containers', label: '容器管理', icon: 'deployed_code' },
   { to: '/probes', label: '端口监控', icon: 'sensors' },
   { to: '/assets', label: '本地业务', icon: 'inventory_2' },
   { to: '/alerts', label: '告警中心', icon: 'notifications_active' },
+  { to: '/logs', label: '日志中心', icon: 'article' },
   { to: '/billing', label: '资源到期', icon: 'event_upcoming' },
   { to: '/settings', label: '系统信息', icon: 'settings' },
 ]

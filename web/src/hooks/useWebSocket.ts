@@ -36,7 +36,8 @@ export function useWebSocket() {
       if (!token) return // 未登录不连接
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`)
-      globalWs = ws
+      globalWs = ws;
+      (window as any).__mantisops_ws = ws
 
       ws.onmessage = (event) => {
         try {
@@ -60,6 +61,15 @@ export function useWebSocket() {
           if (msg.type === 'cloud_sync_progress') {
             const detail: CloudSyncProgress = msg
             window.dispatchEvent(new CustomEvent<CloudSyncProgress>('cloud_sync_progress', { detail }))
+          }
+          if (msg.type === 'log' && msg.data) {
+            window.dispatchEvent(new CustomEvent('ws_log', { detail: msg.data }))
+          }
+          if (msg.type === 'nas_metrics' && msg.nas_id && msg.data) {
+            window.dispatchEvent(new CustomEvent('nas_metrics', { detail: { nas_id: msg.nas_id, data: msg.data } }))
+          }
+          if (msg.type === 'nas_status' && msg.nas_id) {
+            window.dispatchEvent(new CustomEvent('nas_status', { detail: { nas_id: msg.nas_id, status: msg.status } }))
           }
         } catch {
           // ignore
@@ -86,7 +96,8 @@ export function useWebSocket() {
         disposed = true
         clearTimeout(reconnectTimer)
         globalWs?.close()
-        globalWs = null
+        globalWs = null;
+        (window as any).__mantisops_ws = null
         refCount = 0
       }
     }
