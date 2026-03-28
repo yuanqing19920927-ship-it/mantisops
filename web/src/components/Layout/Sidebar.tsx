@@ -10,9 +10,10 @@ const baseLinks = [
   { to: '/databases', label: '数据库', icon: 'database' },
   { to: '/containers', label: '容器管理', icon: 'deployed_code' },
   { to: '/probes', label: '端口监控', icon: 'sensors' },
-  { to: '/assets', label: '本地业务', icon: 'inventory_2' },
+  { to: '/assets', label: '托管业务', icon: 'inventory_2' },
   { to: '/alerts', label: '告警中心', icon: 'notifications_active' },
   { to: '/logs', label: '日志中心', icon: 'article' },
+  { to: '/ai-reports', label: 'AI 报告', icon: 'analytics' },
   { to: '/billing', label: '资源到期', icon: 'event_upcoming' },
   { to: '/settings', label: '系统信息', icon: 'settings' },
 ]
