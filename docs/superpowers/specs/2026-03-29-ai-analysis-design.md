@@ -74,7 +74,7 @@ CREATE TABLE ai_reports (
     trigger_type TEXT NOT NULL,             -- scheduled / manual
     provider TEXT NOT NULL DEFAULT '',      -- 生成时使用的 LLM provider（claude / openai / ollama）
     model TEXT NOT NULL DEFAULT '',         -- 生成时使用的具体模型名
-    token_usage INTEGER DEFAULT 0,          -- LLM token 消耗量（仅 completed 状态有意义）
+    token_usage INTEGER DEFAULT 0,          -- LLM token 消耗量（prompt + completion 总和，仅 completed 状态有意义）
     generation_time_ms INTEGER DEFAULT 0,   -- 生成耗时（毫秒，completed 时为总耗时，failed 时为到失败时刻的耗时）
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -115,11 +115,13 @@ CREATE TABLE ai_messages (
     conversation_id INTEGER NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
     role TEXT NOT NULL,                     -- user / assistant / system
     content TEXT NOT NULL,                  -- 消息内容（Markdown）
+    request_id TEXT DEFAULT '',             -- 客户端生成的请求 UUID，用于幂等去重（仅 user 消息有值）
     prompt_tokens INTEGER DEFAULT 0,        -- 本轮 API 调用的 prompt token 数（仅 assistant 消息填充）
     completion_tokens INTEGER DEFAULT 0,    -- 本轮 API 调用的 completion token 数（仅 assistant 消息填充）
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_ai_messages_conv ON ai_messages(conversation_id, created_at);
+CREATE UNIQUE INDEX idx_ai_messages_request_id ON ai_messages(conversation_id, request_id) WHERE request_id != '';
 ```
 
 **建表方式**：使用版本迁移（在现有 `migrate()` 中新增迁移步骤）。
@@ -1026,7 +1028,7 @@ ai:
 | SQLite 建表 | store/sqlite.go 版本迁移新增 ai_reports、ai_conversations、ai_messages、ai_schedules 表 |
 | 路由注册 | router.go 新增 /ai/* 路由 |
 | main.go 初始化 | 创建 ProviderManager、Reporter、Scheduler、ChatEngine，注入依赖 |
-| WebSocket Hub | hub.go 新增 SendToClient() 方法 + 客户端 ID 标识 |
+| WebSocket Hub | hub.go Client 结构体新增 aiStream 字段，新增 BroadcastAIStreamJSON() 方法 + ai_stream_subscribe/unsubscribe 消息处理 |
 | WebSocket 消息 | 新增 ai_chat_chunk / ai_report_completed / ai_report_failed 类型 |
 | 配置结构 | config.go 新增 AIConfig 结构体 |
 | 设置页 | Settings/index.tsx 新增 AI 配置区块 |
