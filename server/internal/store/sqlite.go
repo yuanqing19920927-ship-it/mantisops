@@ -14,6 +14,13 @@ func InitSQLite(path string) (*sql.DB, error) {
 	if err := migrate(db); err != nil {
 		return nil, err
 	}
+	// Ensure new columns exist (safe to run repeatedly — silently ignores duplicates)
+	for _, col := range []string{
+		"ALTER TABLE servers ADD COLUMN collect_docker BOOLEAN",
+		"ALTER TABLE servers ADD COLUMN collect_gpu BOOLEAN",
+	} {
+		db.Exec(col) // ignore "duplicate column" errors
+	}
 	return db, nil
 }
 
@@ -181,6 +188,30 @@ func migrate(db *sql.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_account_instance ON cloud_instances(cloud_account_id, instance_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_host_id ON cloud_instances(host_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_cloud_instances_type ON cloud_instances(instance_type)`,
+
+		// Platform settings (key-value)
+		`CREATE TABLE IF NOT EXISTS settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL DEFAULT ''
+		)`,
+
+		// NAS devices
+		`CREATE TABLE IF NOT EXISTS nas_devices (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			nas_type TEXT NOT NULL,
+			host TEXT NOT NULL,
+			port INTEGER NOT NULL DEFAULT 22,
+			ssh_user TEXT NOT NULL DEFAULT 'root',
+			credential_id INTEGER NOT NULL REFERENCES credentials(id),
+			collect_interval INTEGER DEFAULT 60,
+			status TEXT DEFAULT 'unknown',
+			last_seen INTEGER,
+			system_info TEXT DEFAULT '{}',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_nas_devices_host_port ON nas_devices(host, port)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
