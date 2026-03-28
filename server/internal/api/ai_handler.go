@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -537,18 +536,20 @@ func (h *AIHandler) TestProvider(c *gin.Context) {
 		Provider string `json:"provider"`
 		APIKey   string `json:"api_key"`
 		Host     string `json:"host"`
+		BaseURL  string `json:"base_url"`
 		Model    string `json:"model"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.Host == "" && req.BaseURL != "" {
+		req.Host = req.BaseURL
+	}
 	if req.Provider == "" || req.Model == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "provider and model are required"})
 		return
 	}
-
-	log.Printf("[ai-test] provider=%s host=%q model=%s", req.Provider, req.Host, req.Model)
 
 	// Create a temporary provider for testing.
 	var prov ai.Provider

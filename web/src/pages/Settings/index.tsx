@@ -221,7 +221,7 @@ export default function Settings() {
                     type="text"
                     value={aiBaseUrl}
                     onChange={(e) => setAiBaseUrl(e.target.value)}
-                    placeholder={aiProvider === 'ollama' ? 'http://192.168.10.69:11434' : 'https://api.openai.com/v1'}
+                    placeholder={aiProvider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'}
                     className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors font-mono"
                   />
                 </div>
@@ -255,7 +255,7 @@ export default function Settings() {
                   setAiTesting(true); setAiTestResult(null)
                   try {
                     const model = aiReportModel || (aiProvider === 'claude' ? 'claude-sonnet-4-20250514' : aiProvider === 'openai' ? 'gpt-4o' : 'qwen2.5:7b')
-                    const host = aiBaseUrl || (aiProvider === 'ollama' ? 'http://192.168.10.69:11434' : 'https://api.openai.com/v1')
+                    const host = aiBaseUrl || (aiProvider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1')
                     const payload: Record<string, string> = { provider: aiProvider, model }
                     if (aiProvider === 'claude' || aiProvider === 'openai') payload.api_key = aiApiKey
                     if (aiProvider === 'openai') payload.host = host
