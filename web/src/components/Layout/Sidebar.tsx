@@ -1,8 +1,9 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useAuthStore } from '../../stores/authStore'
 
-const links = [
+const baseLinks = [
   { to: '/', label: '仪表盘', icon: 'dashboard' },
   { to: '/servers', label: '服务器', icon: 'dns' },
   { to: '/nas', label: 'NAS 存储', icon: 'hard_drive' },
@@ -16,9 +17,18 @@ const links = [
   { to: '/settings', label: '系统信息', icon: 'settings' },
 ]
 
+const adminLinks = [
+  { to: '/users', label: '��户管理', icon: 'group' },
+]
+
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation()
   const { platformName, logoUrl } = useSettingsStore()
+  const role = useAuthStore((s) => s.role)
+  const links = useMemo(() => [
+    ...baseLinks,
+    ...(role === 'admin' ? adminLinks : []),
+  ], [role])
 
   useEffect(() => { onClose() }, [location.pathname])
 
