@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useServerStore } from '../stores/serverStore'
 import { useAlertStore } from '../stores/alertStore'
+import { useAIStore } from '../stores/aiStore'
 import type { DeployProgress, CloudSyncProgress } from '../types/onboarding'
 
 let globalWs: WebSocket | null = null
@@ -22,6 +23,26 @@ export function useWebSocket() {
   const silenceAlert = useAlertStore((s) => s.silenceEvent)
   const silenceAlertRef = useRef(silenceAlert)
   silenceAlertRef.current = silenceAlert
+
+  const appendChunk = useAIStore((s) => s.appendStreamChunk)
+  const appendChunkRef = useRef(appendChunk)
+  appendChunkRef.current = appendChunk
+
+  const finalizeStream = useAIStore((s) => s.finalizeStream)
+  const finalizeStreamRef = useRef(finalizeStream)
+  finalizeStreamRef.current = finalizeStream
+
+  const setStreamError = useAIStore((s) => s.setStreamError)
+  const setStreamErrorRef = useRef(setStreamError)
+  setStreamErrorRef.current = setStreamError
+
+  const addGenReport = useAIStore((s) => s.addGeneratingReport)
+  const addGenReportRef = useRef(addGenReport)
+  addGenReportRef.current = addGenReport
+
+  const removeGenReport = useAIStore((s) => s.removeGeneratingReport)
+  const removeGenReportRef = useRef(removeGenReport)
+  removeGenReportRef.current = removeGenReport
 
   useEffect(() => {
     refCount++
@@ -71,6 +92,29 @@ export function useWebSocket() {
           if (msg.type === 'nas_status' && msg.nas_id) {
             window.dispatchEvent(new CustomEvent('nas_status', { detail: { nas_id: msg.nas_id, status: msg.status } }))
           }
+          if (msg.type === 'scan_progress' && msg.data) {
+            window.dispatchEvent(new CustomEvent('scan_progress', { detail: msg.data }))
+          }
+          if (msg.type === 'scan_complete' && msg.data) {
+            window.dispatchEvent(new CustomEvent('scan_complete', { detail: msg.data }))
+          }
+          if (msg.type === 'ai_chat_chunk') {
+            if (msg.done) {
+              finalizeStreamRef.current()
+            } else {
+              appendChunkRef.current(msg.content || '')
+            }
+          }
+          if (msg.type === 'ai_chat_error') {
+            setStreamErrorRef.current(msg.message_id, msg.error || 'Unknown error')
+          }
+          if (msg.type === 'ai_report_generating') {
+            addGenReportRef.current(msg.report_id)
+          }
+          if (msg.type === 'ai_report_completed' || msg.type === 'ai_report_failed') {
+            removeGenReportRef.current(msg.report_id)
+            window.dispatchEvent(new CustomEvent(msg.type, { detail: msg }))
+          }
         } catch {
           // ignore
         }
@@ -102,4 +146,11 @@ export function useWebSocket() {
       }
     }
   }, [])
+}
+
+export function sendWsMessage(msg: Record<string, unknown>) {
+  const ws = (window as any).__mantisops_ws as WebSocket | null
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg))
+  }
 }
