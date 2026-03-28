@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 
+	"database/sql"
+
 	"mantisops/server/internal/alert"
 	"mantisops/server/internal/api"
 	"mantisops/server/internal/cloud"
@@ -13,6 +15,7 @@ import (
 	"mantisops/server/internal/crypto"
 	"mantisops/server/internal/deployer"
 	grpcpkg "mantisops/server/internal/grpc"
+	"mantisops/server/internal/logging"
 	"mantisops/server/internal/probe"
 	"mantisops/server/internal/store"
 	"mantisops/server/internal/ws"
@@ -47,12 +50,41 @@ func main() {
 	credentialStore := store.NewCredentialStore(db, masterKey)
 	cloudStore := store.NewCloudStore(db)
 	managedServerStore := store.NewManagedServerStore(db)
+	nasStore := store.NewNasStore(db)
 
 	// 4. VictoriaMetrics
 	vmStore := store.NewVictoriaStore(cfg.Victoria.URL)
 
-	// 5. WebSocket Hub
+	// 5. Logging system (logs.db + LogManager)
+	os.MkdirAll(cfg.Logging.Dir, 0755)
+	logsDB, err := sql.Open("sqlite", cfg.Logging.Dir+"/logs.db")
+	if err != nil {
+		log.Fatalf("open logs.db: %v", err)
+	}
+	defer logsDB.Close()
+	logsDB.Exec("PRAGMA journal_mode=WAL")
+
+	logStore, err := logging.NewLogStore(logsDB)
+	if err != nil {
+		log.Fatalf("init log store: %v", err)
+	}
+
+	// 6. WebSocket Hub
 	hub := ws.NewHub()
+
+	logMgr, err := logging.NewLogManager(logStore, hub, logging.ParseLevel(cfg.Logging.Level), cfg.Logging.Dir)
+	if err != nil {
+		log.Fatalf("init log manager: %v", err)
+	}
+	defer logMgr.Close()
+
+	// Hook standard logger so all existing log.Printf calls flow through LogManager
+	logMgr.HookStdLog()
+
+	// Log cleaner
+	logCleaner := logging.NewCleaner(cfg.Logging.Dir, logStore, cfg.Logging.Retention, cfg.Logging.CleanupHour)
+	logCleaner.Start()
+	defer logCleaner.Stop()
 
 	// 6. Metrics Collector
 	mc := collector.NewMetricsCollector(vmStore, hub, serverStore)
@@ -77,6 +109,7 @@ func main() {
 		managedServerStore, credentialStore, serverStore, hub,
 		cfg.Server.PSKToken, grpcAdvertise, binaryDir, registerTimeout,
 	)
+	dep.RecoverStaleWaiting() // fix any managed servers stuck in "waiting" state
 
 	// 9. Probe
 	probeStore := store.NewProbeStore(db)
@@ -84,6 +117,11 @@ func main() {
 	prober.Start(cfg.Probe.Interval)
 	defer prober.Stop()
 	probeHandler := api.NewProbeHandler(probeStore, prober)
+
+	// NAS Collector
+	nasCollector := collector.NewNasCollector(nasStore, credentialStore, vmStore, hub)
+	nasCollector.Start()
+	defer nasCollector.Stop()
 
 	// 10. Alert system
 	alertStore := store.NewAlertStore(db)
@@ -156,7 +194,18 @@ func main() {
 	cloudHandler := api.NewCloudHandler(cloudManager, cloudStore, credentialStore)
 	managedServerHandler := api.NewManagedServerHandler(managedServerStore, dep, credentialStore)
 
-	// 19. HTTP API
+	// NAS handler
+	nasHandler := api.NewNasHandler(nasStore, credentialStore, nasCollector)
+
+	// 19. Log handler
+	logSearcher := logging.NewLogSearcher(logStore, cfg.Logging.Dir)
+	logHandler := api.NewLogHandler(logStore, logSearcher)
+
+	// 20. Settings
+	settingsStore := store.NewSettingsStore(db)
+	settingsHandler := api.NewSettingsHandler(settingsStore)
+
+	// 21. HTTP API
 	router := api.SetupRouter(api.RouterDeps{
 		ServerStore:          serverStore,
 		GroupStore:           groupStore,
@@ -173,6 +222,10 @@ func main() {
 		CredentialHandler:    credentialHandler,
 		CloudHandler:         cloudHandler,
 		ManagedServerHandler: managedServerHandler,
+		NasHandler:           nasHandler,
+		LogHandler:           logHandler,
+		LogManager:           logMgr,
+		SettingsHandler:      settingsHandler,
 	})
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {

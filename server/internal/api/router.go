@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
+	"mantisops/server/internal/logging"
 	"mantisops/server/internal/store"
 	"mantisops/server/internal/ws"
 )
@@ -23,6 +24,10 @@ type RouterDeps struct {
 	CredentialHandler *CredentialHandler
 	CloudHandler         *CloudHandler
 	ManagedServerHandler *ManagedServerHandler
+	NasHandler           *NasHandler
+	LogHandler           *LogHandler
+	LogManager           *logging.LogManager
+	SettingsHandler      *SettingsHandler
 }
 
 func SetupRouter(deps RouterDeps) *gin.Engine {
@@ -40,8 +45,16 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		c.Next()
 	})
 
-	// Public auth endpoint
+	// Audit middleware (after CORS, before routes)
+	if deps.LogManager != nil {
+		r.Use(logging.AuditMiddleware(deps.LogManager))
+	}
+
+	// Public endpoints
 	r.POST("/api/v1/auth/login", deps.AuthHandler.Login)
+	if deps.SettingsHandler != nil {
+		r.GET("/api/v1/settings", deps.SettingsHandler.Get)
+	}
 
 	// Protected API group
 	v1 := r.Group("/api/v1")
@@ -57,12 +70,15 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		v1.GET("/servers/:id", srv.Get)
 		v1.PUT("/servers/:id/name", srv.UpdateDisplayName)
 		v1.PUT("/servers/:id/group", deps.GroupHandler.SetServerGroup)
+		v1.PUT("/servers/:id/config", srv.UpdateConfig)
 
 		// Groups
 		v1.GET("/groups", deps.GroupHandler.List)
 		v1.POST("/groups", deps.GroupHandler.Create)
 		v1.PUT("/groups/:id", deps.GroupHandler.Update)
 		v1.DELETE("/groups/:id", deps.GroupHandler.Delete)
+		v1.PUT("/groups-sort", deps.GroupHandler.BatchSortGroups)
+		v1.PUT("/servers-sort", deps.GroupHandler.BatchSortServers)
 
 		// Probes
 		v1.GET("/probes", deps.ProbeHandler.List)
@@ -116,6 +132,30 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 			v1.POST("/managed-servers/:id/retry", deps.ManagedServerHandler.Retry)
 			v1.DELETE("/managed-servers/:id", deps.ManagedServerHandler.Delete)
 			v1.POST("/managed-servers/:id/uninstall", deps.ManagedServerHandler.Uninstall)
+		}
+
+		// Platform settings (GET is public, PUT requires auth)
+		if deps.SettingsHandler != nil {
+			v1.PUT("/settings", deps.SettingsHandler.Update)
+		}
+
+		// Logs
+		if deps.LogHandler != nil {
+			v1.GET("/logs/audit", deps.LogHandler.ListAudit)
+			v1.GET("/logs/runtime", deps.LogHandler.ListRuntime)
+			v1.GET("/logs/export", deps.LogHandler.Export)
+			v1.GET("/logs/sources", deps.LogHandler.Sources)
+			v1.GET("/logs/stats", deps.LogHandler.Stats)
+		}
+
+		// NAS devices
+		if deps.NasHandler != nil {
+			v1.POST("/nas-devices/test", deps.NasHandler.TestConnection)
+			v1.GET("/nas-devices", deps.NasHandler.List)
+			v1.POST("/nas-devices", deps.NasHandler.Create)
+			v1.PUT("/nas-devices/:id", deps.NasHandler.Update)
+			v1.DELETE("/nas-devices/:id", deps.NasHandler.Delete)
+			v1.GET("/nas-devices/:id/metrics", deps.NasHandler.GetMetrics)
 		}
 
 		// Cloud accounts & instances
