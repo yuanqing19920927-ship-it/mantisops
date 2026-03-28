@@ -28,8 +28,10 @@ type RouterDeps struct {
 	LogHandler           *LogHandler
 	LogManager           *logging.LogManager
 	SettingsHandler      *SettingsHandler
+	ScanHandler          *ScanHandler
 	UserHandler          *UserHandler
 	PermissionCache      *PermissionCache
+	AIHandler            *AIHandler
 }
 
 func SetupRouter(deps RouterDeps) *gin.Engine {
@@ -67,10 +69,10 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		v1.PUT("/auth/password", deps.AuthHandler.ChangePassword)
 
 		// --- Viewer level (default: all GET queries) ---
-		dash := &DashboardHandler{serverStore: deps.ServerStore, metricsProvider: deps.MetricsProvider, groupStore: deps.GroupStore}
+		dash := &DashboardHandler{serverStore: deps.ServerStore, metricsProvider: deps.MetricsProvider, groupStore: deps.GroupStore, permCache: deps.PermissionCache}
 		v1.GET("/dashboard", dash.Overview)
 
-		srv := &ServerHandler{store: deps.ServerStore}
+		srv := &ServerHandler{store: deps.ServerStore, permCache: deps.PermissionCache}
 		v1.GET("/servers", srv.List)
 		v1.GET("/servers/:id", srv.Get)
 
@@ -80,6 +82,12 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		v1.GET("/probes/status", deps.ProbeHandler.Status)
 
 		v1.GET("/assets", deps.AssetHandler.List)
+		v1.GET("/assets/discovered", deps.AssetHandler.ListDiscovered)
+
+		// Scan templates (read)
+		if deps.ScanHandler != nil {
+			v1.GET("/scan-templates", deps.ScanHandler.ListTemplates)
+		}
 
 		v1.GET("/databases", deps.DatabaseHandler.List)
 		v1.GET("/databases/:id", deps.DatabaseHandler.Get)
@@ -103,6 +111,29 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		if deps.NasHandler != nil {
 			v1.GET("/nas-devices", deps.NasHandler.List)
 			v1.GET("/nas-devices/:id/metrics", deps.NasHandler.GetMetrics)
+		}
+
+		// AI analysis module
+		if deps.AIHandler != nil {
+			v1.GET("/ai/reports", deps.AIHandler.ListReports)
+			v1.GET("/ai/reports/latest", deps.AIHandler.LatestReport)
+			v1.GET("/ai/reports/:id", deps.AIHandler.GetReport)
+			v1.POST("/ai/reports/generate", deps.AIHandler.GenerateReport)
+			v1.DELETE("/ai/reports/:id", deps.AIHandler.DeleteReport)
+			v1.GET("/ai/reports/:id/download", deps.AIHandler.DownloadReport)
+
+			v1.GET("/ai/conversations", deps.AIHandler.ListConversations)
+			v1.POST("/ai/conversations", deps.AIHandler.CreateConversation)
+			v1.GET("/ai/conversations/:id", deps.AIHandler.GetConversation)
+			v1.DELETE("/ai/conversations/:id", deps.AIHandler.DeleteConversation)
+			v1.POST("/ai/conversations/:id/messages", deps.AIHandler.SendMessage)
+
+			v1.GET("/ai/settings", deps.AIHandler.GetAISettings)
+			v1.PUT("/ai/settings", deps.AIHandler.UpdateAISettings)
+			v1.GET("/ai/providers", deps.AIHandler.ListProviders)
+			v1.POST("/ai/providers/test", deps.AIHandler.TestProvider)
+			v1.GET("/ai/schedules", deps.AIHandler.ListSchedules)
+			v1.PUT("/ai/schedules/:id", deps.AIHandler.UpdateSchedule)
 		}
 
 		// --- Operator level ---
@@ -192,6 +223,14 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 				adm.POST("/managed-servers/:id/retry", deps.ManagedServerHandler.Retry)
 				adm.DELETE("/managed-servers/:id", deps.ManagedServerHandler.Delete)
 				adm.POST("/managed-servers/:id/uninstall", deps.ManagedServerHandler.Uninstall)
+			}
+
+			// Scan templates + scan (admin only)
+			if deps.ScanHandler != nil {
+				adm.POST("/scan-templates", deps.ScanHandler.CreateTemplate)
+				adm.PUT("/scan-templates/:id", deps.ScanHandler.UpdateTemplate)
+				adm.DELETE("/scan-templates/:id", deps.ScanHandler.DeleteTemplate)
+				adm.POST("/probes/scan", deps.ScanHandler.StartScan)
 			}
 
 			// NAS management

@@ -49,6 +49,14 @@ var auditRoutes = []auditRoute{
 	{"POST", "/api/v1/groups", "", "create", "group"},
 	{"PUT", "/api/v1/groups/", "", "update", "group"},
 	{"DELETE", "/api/v1/groups/", "", "delete", "group"},
+	// AI analysis module
+	{"POST", "/api/v1/ai/reports/generate", "", "generate", "ai_report"},
+	{"DELETE", "/api/v1/ai/reports/", "", "delete", "ai_report"},
+	{"POST", "/api/v1/ai/conversations", "", "create", "ai_conversation"},
+	{"DELETE", "/api/v1/ai/conversations/", "", "delete", "ai_conversation"},
+	{"PUT", "/api/v1/ai/settings", "", "update", "ai_settings"},
+	{"PUT", "/api/v1/ai/schedules/", "", "update", "ai_schedule"},
+	{"POST", "/api/v1/ai/providers/test", "", "test", "ai_provider"},
 	// User management (suffix-disambiguated, more specific first)
 	{"PUT", "/api/v1/users/", "/reset-pwd", "reset_pwd", "user"},
 	{"PUT", "/api/v1/users/", "/permissions", "set_permissions", "user_permission"},
