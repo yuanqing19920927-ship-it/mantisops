@@ -153,7 +153,7 @@ func main() {
 	// 11. Asset + Discovered Services
 	assetStore := store.NewAssetStore(db)
 	discoveredServiceStore := store.NewDiscoveredServiceStore(db)
-	assetHandler := api.NewAssetHandler(assetStore, discoveredServiceStore)
+	assetHandler := api.NewAssetHandler(assetStore, discoveredServiceStore, serverStore, permCache)
 
 	// 12. Aliyun Cloud Collector
 	var metricsProvider api.MetricsProvider
