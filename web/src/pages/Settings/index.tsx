@@ -31,11 +31,13 @@ export default function Settings() {
   const fetchAI = useCallback(async () => {
     try {
       const [settings, schedules] = await Promise.all([getAISettings(), listSchedules()])
-      setAiProvider(settings.active_provider || 'ollama')
-      setAiApiKey(settings[settings.active_provider || 'claude']?.api_key || '')
-      setAiBaseUrl(settings[settings.active_provider || 'ollama']?.base_url || settings[settings.active_provider || 'ollama']?.host || '')
-      setAiReportModel(settings[settings.active_provider || 'ollama']?.report_model || '')
-      setAiChatModel(settings[settings.active_provider || 'ollama']?.chat_model || '')
+      const provider = settings.active_provider || 'ollama'
+      setAiProvider(provider)
+      const provCfg = settings[provider] || {}
+      setAiApiKey(provCfg.api_key || '')
+      setAiBaseUrl(provCfg.base_url || provCfg.host || '')
+      setAiReportModel(provCfg.report_model || '')
+      setAiChatModel(provCfg.chat_model || '')
       setAiSchedules(schedules || [])
     } catch { /* AI not enabled, use defaults */ }
     setAiLoaded(true)
@@ -277,14 +279,15 @@ export default function Settings() {
                 onClick={async () => {
                   setAiSaving(true); setAiSaved(false)
                   try {
-                    await updateAISettings({
-                      active_provider: aiProvider,
-                      api_key: aiApiKey,
-                      base_url: aiBaseUrl,
-                      host: aiBaseUrl,
-                      report_model: aiReportModel,
-                      chat_model: aiChatModel,
-                    })
+                    const payload: Record<string, unknown> = { active_provider: aiProvider }
+                    if (aiProvider === 'claude') {
+                      payload.claude = { api_key: aiApiKey, report_model: aiReportModel, chat_model: aiChatModel }
+                    } else if (aiProvider === 'openai') {
+                      payload.openai = { api_key: aiApiKey, base_url: aiBaseUrl, report_model: aiReportModel, chat_model: aiChatModel }
+                    } else if (aiProvider === 'ollama') {
+                      payload.ollama = { host: aiBaseUrl, report_model: aiReportModel, chat_model: aiChatModel }
+                    }
+                    await updateAISettings(payload)
                     setAiSaved(true)
                     setTimeout(() => setAiSaved(false), 3000)
                   } catch { /* ignore */ }
