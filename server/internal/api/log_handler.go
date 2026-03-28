@@ -120,10 +120,16 @@ func (h *LogHandler) Sources(c *gin.Context) {
 }
 
 func (h *LogHandler) Stats(c *gin.Context) {
-	// TODO: add SQL-level permission filtering for non-admin users
 	start := parseTime(c.Query("start"), time.Now().Add(-24*time.Hour))
 	end := parseTime(c.Query("end"), time.Now())
-	stats, err := h.store.GetStats(start, end)
+	ps := GetPermissionSet(c, h.permCache)
+	var stats map[string]int
+	var err error
+	if ps == nil {
+		stats, err = h.store.GetStats(start, end)
+	} else {
+		stats, err = h.store.GetStatsFiltered(start, end, ps.AllVisibleLogSources())
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
