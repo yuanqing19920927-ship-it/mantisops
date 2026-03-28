@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { getAssets, createAsset, deleteAsset, type AssetInfo } from '../../api/client'
 import { useServerStore } from '../../stores/serverStore'
+import { useAuthStore } from '../../stores/authStore'
 
 export default function Assets() {
+  const canEdit = useAuthStore((s) => s.role === 'admin' || s.role === 'operator')
   const [assets, setAssets] = useState<AssetInfo[]>([])
   const servers = useServerStore((s) => s.servers)
   const fetchDashboard = useServerStore((s) => s.fetchDashboard)
@@ -102,13 +104,15 @@ export default function Assets() {
           <h1 className="text-[22px] font-semibold text-[#495057]">资产台账</h1>
           <p className="text-sm text-[#878a99] mt-1">实时监控全链路应用资产，自动识别技术栈与端口占用</p>
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
-        >
-          <span className="material-symbols-outlined text-[16px]">add</span>
-          添加业务
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
+          >
+            <span className="material-symbols-outlined text-[16px]">add</span>
+            添加业务
+          </button>
+        )}
       </div>
 
       {/* Add form */}
