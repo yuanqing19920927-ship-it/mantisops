@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"mantisops/server/internal/collector"
 	"mantisops/server/internal/model"
 	pb "mantisops/server/proto/gen"
 )
@@ -247,6 +248,103 @@ func evalContainer(rule model.AlertRule, servers []model.Server, metrics Metrics
 		}
 	}
 	return results
+}
+
+// EvaluateNas evaluates a NAS alert rule against a single NAS device's metrics snapshot.
+func EvaluateNas(rule model.AlertRule, nasID int64, snap *collector.NasMetricsSnapshot) []EvalResult {
+	if snap == nil {
+		return nil
+	}
+	targetID := fmt.Sprintf("nas:%d", nasID)
+
+	switch rule.Type {
+	case "nas_raid_degraded":
+		var results []EvalResult
+		for _, raid := range snap.Raids {
+			hit := raid.Status == "degraded" || raid.Status == "rebuilding"
+			stateKey := fmt.Sprintf("%d:%s:%s", rule.ID, targetID, raid.Array)
+			msg := fmt.Sprintf("NAS RAID %s 状态: %s", raid.Array, raid.Status)
+			if raid.Status == "rebuilding" {
+				msg = fmt.Sprintf("NAS RAID %s 重建中 (%.1f%%)", raid.Array, raid.RebuildPercent)
+			}
+			results = append(results, EvalResult{
+				StateKey: stateKey,
+				TargetID: targetID,
+				Hit:      hit,
+				Value:    0,
+				Label:    fmt.Sprintf("NAS %d [%s]", nasID, raid.Array),
+				Message:  msg,
+			})
+		}
+		return results
+
+	case "nas_disk_smart":
+		var results []EvalResult
+		for _, disk := range snap.Disks {
+			hit := !disk.SmartHealthy
+			stateKey := fmt.Sprintf("%d:%s:%s", rule.ID, targetID, disk.Name)
+			results = append(results, EvalResult{
+				StateKey: stateKey,
+				TargetID: targetID,
+				Hit:      hit,
+				Value:    0,
+				Label:    fmt.Sprintf("NAS %d [%s]", nasID, disk.Name),
+				Message:  fmt.Sprintf("NAS 磁盘 %s SMART 状态: %v", disk.Name, disk.SmartHealthy),
+			})
+		}
+		return results
+
+	case "nas_disk_temperature":
+		var results []EvalResult
+		for _, disk := range snap.Disks {
+			val := float64(disk.Temperature)
+			hit := compare(val, rule.Operator, rule.Threshold)
+			stateKey := fmt.Sprintf("%d:%s:%s", rule.ID, targetID, disk.Name)
+			results = append(results, EvalResult{
+				StateKey: stateKey,
+				TargetID: targetID,
+				Hit:      hit,
+				Value:    val,
+				Label:    fmt.Sprintf("NAS %d [%s]", nasID, disk.Name),
+				Message:  fmt.Sprintf("NAS 磁盘 %s 温度: %.0f°C (阈值: %s %.0f°C)", disk.Name, val, rule.Operator, rule.Threshold),
+			})
+		}
+		return results
+
+	case "nas_volume_usage":
+		var results []EvalResult
+		for _, vol := range snap.Volumes {
+			val := vol.UsagePercent
+			hit := compare(val, rule.Operator, rule.Threshold)
+			stateKey := fmt.Sprintf("%d:%s:%s", rule.ID, targetID, vol.Mount)
+			results = append(results, EvalResult{
+				StateKey: stateKey,
+				TargetID: targetID,
+				Hit:      hit,
+				Value:    val,
+				Label:    fmt.Sprintf("NAS %d [%s]", nasID, vol.Mount),
+				Message:  fmt.Sprintf("NAS 卷 %s 使用率: %.1f%% (阈值: %s %.1f%%)", vol.Mount, val, rule.Operator, rule.Threshold),
+			})
+		}
+		return results
+
+	case "nas_ups_battery":
+		if snap.UPS == nil {
+			return nil
+		}
+		hit := snap.UPS.Status == "on_battery" || snap.UPS.Status == "low_battery"
+		stateKey := fmt.Sprintf("%d:%s:ups", rule.ID, targetID)
+		return []EvalResult{{
+			StateKey: stateKey,
+			TargetID: targetID,
+			Hit:      hit,
+			Value:    float64(snap.UPS.BatteryPercent),
+			Label:    fmt.Sprintf("NAS %d [UPS]", nasID),
+			Message:  fmt.Sprintf("NAS UPS 状态: %s (电量: %d%%)", snap.UPS.Status, snap.UPS.BatteryPercent),
+		}}
+	}
+
+	return nil
 }
 
 // evalNetwork evaluates aggregated network traffic across all interfaces

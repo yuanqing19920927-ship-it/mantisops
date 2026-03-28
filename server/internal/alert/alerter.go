@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"mantisops/server/internal/collector"
 	"mantisops/server/internal/model"
 	"mantisops/server/internal/store"
 	"mantisops/server/internal/ws"
@@ -21,6 +22,14 @@ type ruleState struct {
 	silenced           bool
 	eventID            int
 	lastValue          float64
+	lastTimestamp      time.Time
+}
+
+// NasProvider interface for reading NAS metrics and health.
+type NasProvider interface {
+	GetAllMetrics() map[int64]*collector.NasMetricsSnapshot
+	GetDeviceHealth(nasID int64) *collector.NasDeviceHealth
+	ListDeviceIDs() []int64
 }
 
 // Alerter is the core alert engine implementing evaluation loop, state machine, and notification dispatch.
@@ -30,19 +39,21 @@ type Alerter struct {
 	metrics MetricsProvider
 	probes  ProbeProvider
 	servers ServerProvider
+	nas     NasProvider
 	mu      sync.RWMutex
 	states  map[string]*ruleState
 	stopCh  chan struct{}
 }
 
 // NewAlerter creates a new Alerter instance.
-func NewAlerter(s *store.AlertStore, hub *ws.Hub, metrics MetricsProvider, probes ProbeProvider, servers ServerProvider) *Alerter {
+func NewAlerter(s *store.AlertStore, hub *ws.Hub, metrics MetricsProvider, probes ProbeProvider, servers ServerProvider, nas NasProvider) *Alerter {
 	return &Alerter{
 		store:   s,
 		hub:     hub,
 		metrics: metrics,
 		probes:  probes,
 		servers: servers,
+		nas:     nas,
 		states:  make(map[string]*ruleState),
 		stopCh:  make(chan struct{}),
 	}
@@ -122,6 +133,10 @@ func (a *Alerter) evaluate() {
 			}
 			a.processResult(rule, r)
 		}
+	}
+
+	if a.nas != nil {
+		a.evaluateNas(rules)
 	}
 
 	a.cleanupGoneTargets(servers)
@@ -207,6 +222,93 @@ func (a *Alerter) resolveAlert(st *ruleState, resolveType string) {
 	st.consecutiveNormals = 0
 }
 
+// evaluateNas evaluates all NAS-type alert rules against cached NAS metrics.
+func (a *Alerter) evaluateNas(rules []model.AlertRule) {
+	allMetrics := a.nas.GetAllMetrics()
+
+	for _, rule := range rules {
+		if !strings.HasPrefix(rule.Type, "nas_") {
+			continue
+		}
+		if rule.Type == "nas_offline" {
+			a.evaluateNasOffline(rule, allMetrics)
+			continue
+		}
+
+		// Filter by target_id
+		targetNasIDs := make(map[int64]bool)
+		if rule.TargetID != "" {
+			parts := strings.SplitN(rule.TargetID, ":", 2)
+			if len(parts) == 2 {
+				id, _ := strconv.ParseInt(parts[1], 10, 64)
+				if id > 0 {
+					targetNasIDs[id] = true
+				}
+			}
+		}
+
+		for nasID, snap := range allMetrics {
+			if len(targetNasIDs) > 0 && !targetNasIDs[nasID] {
+				continue
+			}
+			// Timestamp dedup
+			stateKey := fmt.Sprintf("%d:nas:%d", rule.ID, nasID)
+			a.mu.RLock()
+			st := a.states[stateKey]
+			a.mu.RUnlock()
+			if st != nil && snap != nil && st.lastTimestamp == snap.Timestamp {
+				continue
+			}
+
+			results := EvaluateNas(rule, nasID, snap)
+			for _, r := range results {
+				a.processResult(rule, r)
+			}
+
+			a.mu.Lock()
+			if a.states[stateKey] == nil {
+				a.states[stateKey] = &ruleState{}
+			}
+			if snap != nil {
+				a.states[stateKey].lastTimestamp = snap.Timestamp
+			}
+			a.mu.Unlock()
+		}
+	}
+}
+
+// evaluateNasOffline evaluates NAS offline rules based on device health failure count.
+func (a *Alerter) evaluateNasOffline(rule model.AlertRule, allMetrics map[int64]*collector.NasMetricsSnapshot) {
+	allIDs := a.nas.ListDeviceIDs()
+	for _, nasID := range allIDs {
+		if rule.TargetID != "" {
+			parts := strings.SplitN(rule.TargetID, ":", 2)
+			if len(parts) == 2 {
+				tid, _ := strconv.ParseInt(parts[1], 10, 64)
+				if tid > 0 && tid != nasID {
+					continue
+				}
+			}
+		}
+		targetID := fmt.Sprintf("nas:%d", nasID)
+		stateKey := fmt.Sprintf("%d:%s", rule.ID, targetID)
+		health := a.nas.GetDeviceHealth(nasID)
+		var failCount int
+		if health != nil {
+			failCount = health.FailureCount
+		}
+		hit := health != nil && health.FailureCount >= 3
+
+		a.processResult(rule, EvalResult{
+			StateKey: stateKey,
+			TargetID: targetID,
+			Hit:      hit,
+			Value:    float64(failCount),
+			Message:  fmt.Sprintf("NAS device offline (failures: %d)", failCount),
+		})
+	}
+}
+
 // cleanupDisabledRules removes non-firing states for rules that are no longer enabled.
 func (a *Alerter) cleanupDisabledRules(enabledRules []model.AlertRule) {
 	enabledIDs := make(map[int]bool, len(enabledRules))
@@ -249,6 +351,14 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 		probeIDs[fmt.Sprintf("%d", pr.RuleID)] = true
 	}
 
+	// Collect NAS device IDs
+	nasIDs := make(map[string]bool)
+	if a.nas != nil {
+		for _, id := range a.nas.ListDeviceIDs() {
+			nasIDs[fmt.Sprintf("nas:%d", id)] = true
+		}
+	}
+
 	// Find firing states whose targets are gone
 	type goneEntry struct {
 		key     string
@@ -261,7 +371,7 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 		if !st.firing {
 			continue
 		}
-		if !a.isTargetPresent(key, serverIDs, hostDisks, hostContainers, probeIDs) {
+		if !a.isTargetPresent(key, serverIDs, hostDisks, hostContainers, probeIDs, nasIDs) {
 			gone = append(gone, goneEntry{key: key, eventID: st.eventID})
 		}
 	}
@@ -287,14 +397,23 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 
 // isTargetPresent checks if the target referenced by a state key still exists.
 // Called with mu held for reading.
-func (a *Alerter) isTargetPresent(key string, serverIDs map[string]bool, hostDisks, hostContainers map[string]map[string]bool, probeIDs map[string]bool) bool {
+func (a *Alerter) isTargetPresent(key string, serverIDs map[string]bool, hostDisks, hostContainers map[string]map[string]bool, probeIDs, nasIDs map[string]bool) bool {
 	// State key format: "ruleID:targetID" or "ruleID:hostID:mount_or_container"
+	// NAS keys: "ruleID:nas:nasID" or "ruleID:nas:nasID:subLabel"
 	parts := strings.SplitN(key, ":", 3)
 	if len(parts) < 2 {
 		return true // can't parse, assume present
 	}
 
 	targetID := parts[1]
+
+	// Check NAS targets: key starts with "ruleID:nas:..."
+	if targetID == "nas" && len(parts) == 3 {
+		// parts[2] could be "123" or "123:md0" — extract "nas:123"
+		subParts := strings.SplitN(parts[2], ":", 2)
+		nasKey := fmt.Sprintf("nas:%s", subParts[0])
+		return nasIDs[nasKey]
+	}
 
 	// Check if it's a probe target (pure numeric after ruleID)
 	if len(parts) == 2 {
