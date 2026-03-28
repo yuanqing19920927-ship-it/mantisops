@@ -95,6 +95,10 @@ func (h *AIHandler) GetReport(c *gin.Context) {
 
 // GenerateReport triggers asynchronous report generation.
 func (h *AIHandler) GenerateReport(c *gin.Context) {
+	if h.reporter == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI 功能未启用，请在 server.yaml 中设置 ai.enabled: true 并重启服务"})
+		return
+	}
 	var req struct {
 		ReportType  string `json:"report_type"`
 		PeriodStart *int64 `json:"period_start"`
@@ -314,6 +318,10 @@ func (h *AIHandler) DeleteConversation(c *gin.Context) {
 
 // SendMessage sends a user message and starts streaming the AI response.
 func (h *AIHandler) SendMessage(c *gin.Context) {
+	if h.chat == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI 功能未启用"})
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -514,6 +522,10 @@ func (h *AIHandler) UpdateAISettings(c *gin.Context) {
 
 // ListProviders returns information about all registered AI providers.
 func (h *AIHandler) ListProviders(c *gin.Context) {
+	if h.provider == nil {
+		c.JSON(http.StatusOK, gin.H{"providers": []ai.ProviderInfo{}})
+		return
+	}
 	providers := h.provider.List()
 	c.JSON(http.StatusOK, gin.H{"providers": providers})
 }
