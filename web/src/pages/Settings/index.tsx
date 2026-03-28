@@ -27,6 +27,14 @@ import {
 } from '../../api/nas'
 import type { NasDevice } from '../../api/nas'
 import { useAuthStore } from '../../stores/authStore'
+import {
+  getAISettings,
+  updateAISettings,
+  testProvider,
+  listSchedules,
+  updateSchedule,
+} from '../../api/ai'
+import type { AISchedule } from '../../api/ai'
 
 export default function Settings() {
   const isAdmin = useAuthStore((s) => s.role === 'admin')
@@ -91,6 +99,80 @@ export default function Settings() {
   const [nasTestLoading, setNasTestLoading] = useState(false)
   const [nasSaving, setNasSaving] = useState(false)
 
+  // AI config state
+  const [aiProvider, setAiProvider] = useState<'claude' | 'openai' | 'ollama'>('claude')
+  const [aiApiKey, setAiApiKey] = useState('')
+  const [aiBaseUrl, setAiBaseUrl] = useState('')
+  const [aiReportModel, setAiReportModel] = useState('')
+  const [aiChatModel, setAiChatModel] = useState('')
+  const [aiSchedules, setAiSchedules] = useState<AISchedule[]>([])
+  const [aiSaving, setAiSaving] = useState(false)
+  const [aiSaved, setAiSaved] = useState(false)
+  const [aiTesting, setAiTesting] = useState(false)
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; error?: string } | null>(null)
+  const [aiLoaded, setAiLoaded] = useState(false)
+
+  const fetchAI = useCallback(async () => {
+    try {
+      const [settings, schedules] = await Promise.all([getAISettings(), listSchedules()])
+      setAiProvider(settings.active_provider || 'claude')
+      setAiApiKey(settings.api_key || '')
+      setAiBaseUrl(settings.base_url || '')
+      setAiReportModel(settings.report_model || '')
+      setAiChatModel(settings.chat_model || '')
+      setAiSchedules(schedules || [])
+      setAiLoaded(true)
+    } catch (err) {
+      console.error('[settings] fetch AI:', err)
+    }
+  }, [])
+
+  const handleAISave = async () => {
+    setAiSaving(true)
+    try {
+      await updateAISettings({
+        active_provider: aiProvider,
+        api_key: aiApiKey,
+        base_url: aiBaseUrl,
+        report_model: aiReportModel,
+        chat_model: aiChatModel,
+      })
+      setAiSaved(true)
+      setTimeout(() => setAiSaved(false), 2000)
+    } catch (err) {
+      console.error('[settings] save AI:', err)
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  const handleAITest = async () => {
+    setAiTesting(true)
+    setAiTestResult(null)
+    try {
+      const result = await testProvider({
+        provider: aiProvider,
+        api_key: aiApiKey,
+        base_url: aiBaseUrl,
+        model: aiChatModel || aiReportModel,
+      })
+      setAiTestResult(result)
+    } catch (err) {
+      setAiTestResult({ ok: false, error: String(err) })
+    } finally {
+      setAiTesting(false)
+    }
+  }
+
+  const handleScheduleToggle = async (schedule: AISchedule) => {
+    try {
+      await updateSchedule(schedule.id, { enabled: !schedule.enabled })
+      setAiSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, enabled: !s.enabled } : s))
+    } catch (err) {
+      console.error('[settings] toggle schedule:', err)
+    }
+  }
+
   const fetchManaged = useCallback(() => {
     getManagedServers().then(setManagedServers).catch((err) => console.error('[settings] fetch managed:', err))
   }, [])
@@ -112,13 +194,14 @@ export default function Settings() {
     fetchCloud()
     fetchNas()
     fetchCredentials()
+    fetchAI()
     const timer = setInterval(() => {
       fetchManaged()
       fetchCloud()
       fetchNas()
     }, 15000)
     return () => clearInterval(timer)
-  }, [fetchManaged, fetchCloud, fetchNas, fetchCredentials])
+  }, [fetchManaged, fetchCloud, fetchNas, fetchCredentials, fetchAI])
 
   const sshCredentials = credentials.filter((c) => c.type === 'ssh_password' || c.type === 'ssh_key')
 
@@ -803,6 +886,176 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* ── AI 配置 ── */}
+      {isAdmin && aiLoaded && (
+        <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">smart_toy</span>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-[#495057]">AI 配置</h2>
+              <p className="text-[11px] text-[#878a99] mt-0.5">配置 AI 分析引擎的提供商、模型和定时报告</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-5">
+            {/* Provider selector */}
+            <div>
+              <label className="block text-[12px] font-medium text-[#878a99] mb-2">活跃提供商</label>
+              <div className="flex gap-2">
+                {(['claude', 'openai', 'ollama'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setAiProvider(p)}
+                    className={`text-[13px] px-4 py-2 rounded-lg transition-colors font-medium ${
+                      aiProvider === p
+                        ? 'bg-[#2ca07a] text-white'
+                        : 'bg-[#f3f6f9] text-[#878a99] hover:text-[#495057]'
+                    }`}
+                  >
+                    {p === 'claude' ? 'Claude' : p === 'openai' ? 'OpenAI' : 'Ollama'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Provider-specific fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(aiProvider === 'claude' || aiProvider === 'openai') && (
+                <div className="sm:col-span-2">
+                  <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">API Key</label>
+                  <input
+                    type="password"
+                    value={aiApiKey}
+                    onChange={(e) => setAiApiKey(e.target.value)}
+                    placeholder={aiProvider === 'claude' ? 'sk-ant-...' : 'sk-...'}
+                    className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors font-mono"
+                  />
+                </div>
+              )}
+              {(aiProvider === 'openai' || aiProvider === 'ollama') && (
+                <div className="sm:col-span-2">
+                  <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">
+                    {aiProvider === 'ollama' ? 'Host URL' : 'Base URL'}
+                  </label>
+                  <input
+                    type="text"
+                    value={aiBaseUrl}
+                    onChange={(e) => setAiBaseUrl(e.target.value)}
+                    placeholder={aiProvider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'}
+                    className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors font-mono"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">报告模型</label>
+                <input
+                  type="text"
+                  value={aiReportModel}
+                  onChange={(e) => setAiReportModel(e.target.value)}
+                  placeholder={aiProvider === 'claude' ? 'claude-sonnet-4-20250514' : aiProvider === 'openai' ? 'gpt-4o' : 'qwen2.5:14b'}
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">对话模型</label>
+                <input
+                  type="text"
+                  value={aiChatModel}
+                  onChange={(e) => setAiChatModel(e.target.value)}
+                  placeholder={aiProvider === 'claude' ? 'claude-sonnet-4-20250514' : aiProvider === 'openai' ? 'gpt-4o-mini' : 'qwen2.5:7b'}
+                  className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Test + Save */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={handleAITest}
+                disabled={aiTesting}
+                className="flex items-center gap-1.5 px-3 py-2 text-[12px] border border-[#ced4da] text-[#495057] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {aiTesting ? (
+                  <span className="w-3 h-3 border border-[#2ca07a]/40 border-t-[#2ca07a] rounded-full animate-spin flex-shrink-0" />
+                ) : (
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>network_check</span>
+                )}
+                {aiTesting ? '测试中...' : '测试连接'}
+              </button>
+              <button
+                onClick={handleAISave}
+                disabled={aiSaving}
+                className="flex items-center gap-1.5 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>save</span>
+                {aiSaving ? '保存中...' : '保存 AI 配置'}
+              </button>
+              {aiSaved && (
+                <span className="text-[12px] text-[#0ab39c] flex items-center gap-1">
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
+                  已保存
+                </span>
+              )}
+            </div>
+
+            {/* Test result */}
+            {aiTestResult && (
+              <div className={`px-3 py-2 rounded-[6px] text-[12px] ${aiTestResult.ok ? 'bg-[#0ab39c]/8 text-[#0ab39c] border border-[#0ab39c]/20' : 'bg-[#f06548]/8 text-[#f06548] border border-[#f06548]/20'}`}>
+                {aiTestResult.ok ? (
+                  <span className="flex items-center gap-1">
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
+                    连接成功
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>error</span>
+                    {aiTestResult.error ?? '连接失败'}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Scheduled Reports */}
+            {aiSchedules.length > 0 && (
+              <div>
+                <label className="block text-[12px] font-medium text-[#878a99] mb-2">定时报告</label>
+                <div className="border border-[#e9ebec] rounded-lg overflow-hidden">
+                  {aiSchedules.map((s, idx) => {
+                    const typeLabels: Record<string, string> = {
+                      daily: '每日报告',
+                      weekly: '每周报告',
+                      monthly: '每月报告',
+                      quarterly: '每季报告',
+                      yearly: '年度报告',
+                    }
+                    return (
+                      <div
+                        key={s.id}
+                        className={`flex items-center justify-between px-4 py-3 ${idx < aiSchedules.length - 1 ? 'border-b border-[#e9ebec]' : ''}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-[#495057] font-medium">{typeLabels[s.report_type] ?? s.report_type}</span>
+                          <span className="text-[11px] font-mono text-[#878a99] bg-[#f3f6f9] px-2 py-0.5 rounded">{s.cron_expr}</span>
+                        </div>
+                        <button
+                          onClick={() => handleScheduleToggle(s)}
+                          className={`relative w-10 h-5 rounded-full transition-colors ${s.enabled ? 'bg-[#2ca07a]' : 'bg-[#ced4da]'}`}
+                        >
+                          <span
+                            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${s.enabled ? 'left-[22px]' : 'left-0.5'}`}
+                          />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── NAS 添加/编辑对话框 ── */}
       {showNasDialog && (
