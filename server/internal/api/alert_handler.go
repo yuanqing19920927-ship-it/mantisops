@@ -174,8 +174,14 @@ func (h *AlertHandler) ListEvents(c *gin.Context) {
 }
 
 func (h *AlertHandler) GetStats(c *gin.Context) {
-	// TODO: add SQL-level permission filtering for non-admin users (aggregate counts can't be post-filtered)
-	stats, err := h.store.GetStats()
+	ps := GetPermissionSet(c, h.permCache)
+	var stats *model.AlertStats
+	var err error
+	if ps == nil {
+		stats, err = h.store.GetStats()
+	} else {
+		stats, err = h.store.GetStatsFiltered(ps.AllVisibleTargetIDs())
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
