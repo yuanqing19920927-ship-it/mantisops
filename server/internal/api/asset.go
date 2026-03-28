@@ -12,11 +12,12 @@ import (
 type AssetHandler struct {
 	store           *store.AssetStore
 	discoveredStore *store.DiscoveredServiceStore
-	// TODO: add permCache and filter assets by server visibility (requires server_id → host_id mapping)
+	serverStore     *store.ServerStore
+	permCache       *PermissionCache
 }
 
-func NewAssetHandler(s *store.AssetStore, ds *store.DiscoveredServiceStore) *AssetHandler {
-	return &AssetHandler{store: s, discoveredStore: ds}
+func NewAssetHandler(s *store.AssetStore, ds *store.DiscoveredServiceStore, ss *store.ServerStore, pc *PermissionCache) *AssetHandler {
+	return &AssetHandler{store: s, discoveredStore: ds, serverStore: ss, permCache: pc}
 }
 
 func (h *AssetHandler) List(c *gin.Context) {
@@ -24,6 +25,21 @@ func (h *AssetHandler) List(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		// Build server_id → host_id mapping
+		servers, _ := h.serverStore.List()
+		idToHostID := make(map[int]string, len(servers))
+		for _, s := range servers {
+			idToHostID[s.ID] = s.HostID
+		}
+		filtered := assets[:0]
+		for _, a := range assets {
+			if hostID, ok := idToHostID[a.ServerID]; ok && ps.CanSeeServer(hostID) {
+				filtered = append(filtered, a)
+			}
+		}
+		assets = filtered
 	}
 	c.JSON(http.StatusOK, assets)
 }
