@@ -1,7 +1,7 @@
 # MantisOps NAS 监控模块设计文档
 
 > 日期：2026-03-29
-> 状态：已确认（rev.3 — 补充实现细节）
+> 状态：已确认（rev.4 — 修复用户审查问题）
 
 ## 一、架构总览
 
@@ -138,7 +138,23 @@ type NasCollector struct {
     hub        *ws.Hub
     cache      map[int64]*NasMetricsSnapshot  // 最新指标缓存
     workers    map[int64]context.CancelFunc    // 每设备的采集 goroutine
+    prevRaw    map[int64]*NasRawCounters       // 上一轮 CPU/网络原始计数（用于 delta 计算）
+    health     map[int64]*NasDeviceHealth      // per-device 健康状态（failureCount 等）
     mu         sync.RWMutex
+}
+
+// NasRawCounters 保存 delta 计算所需的上一轮原始值
+type NasRawCounters struct {
+    CPUIdle   uint64
+    CPUTotal  uint64
+    NetRx     map[string]uint64  // interface → rx_bytes
+    NetTx     map[string]uint64  // interface → tx_bytes
+}
+
+// NasDeviceHealth 维护采集健康状态
+type NasDeviceHealth struct {
+    FailureCount int
+    LastError    string
 }
 
 // 启动：加载所有 NAS 设备，为每个启动采集 goroutine
@@ -161,13 +177,20 @@ func (c *NasCollector) GetMetrics(deviceID int64) *NasMetricsSnapshot
 
 | 指标 | 命令 | 解析方式 |
 |------|------|---------|
-| CPU/内存 | `cat /proc/stat && cat /proc/meminfo` | 与 Agent 相同算法 |
-| 网络 | `cat /proc/net/dev` | delta 计算 |
+| CPU/内存 | `cat /proc/stat && cat /proc/meminfo` | 与 Agent 相同算法，需保存 prevRaw 做 delta（见 3.2 NasRawCounters） |
+| 网络 | `cat /proc/net/dev` | 与上一轮 prevRaw.NetRx/NetTx 做 delta，首轮采集跳过（无基线） |
 | RAID 状态 | `cat /proc/mdstat` | 正则解析 md 设备、类型、状态、重建进度 |
 | 硬盘列表 | `lsblk -Jb -o NAME,SIZE,TYPE,MOUNTPOINT` | JSON 输出 |
 | S.M.A.R.T. | `smartctl -A -H /dev/sdX` | 逐盘执行，解析温度/健康/关键属性 |
-| 卷用量 | `df -B1` | 解析各挂载点 |
+| 卷用量 | `df -B1 -x tmpfs -x devtmpfs -x squashfs` | 排除伪文件系统后，按 nas_type 过滤（见下方卷过滤规则） |
 | UPS | `upsc ups@localhost 2>/dev/null` | 解析 NUT 输出（如有） |
+
+**卷过滤规则：**
+
+`df` 排除伪 FS 后，仍需按 NAS 类型白名单过滤业务卷：
+- **Synology**：只保留 `/volume*` 挂载点（群晖数据卷统一命名为 `/volume1`、`/volume2` 等）
+- **fnOS**：只保留文件系统为 `btrfs` 或 `ext4` 且挂载点不在排除列表（`/boot`、`/`、`/snap/*`）中的条目，结合 `lsblk` 输出确认挂载点对应的是数据盘而非系统盘
+- **通用兜底**：如果白名单匹配为空，回退到保留所有 `>= 10GB` 且 `fstype` 为 `ext4/btrfs/xfs` 的挂载点
 
 **群晖专属补充：**
 
@@ -196,7 +219,7 @@ func (c *NasCollector) GetMetrics(deviceID int64) *NasMetricsSnapshot
 - SSH 连接失败：标记 `status=offline`，跳过本轮，下轮重试
 - 认证失败：标记 `status=offline`，在 system_info 中记录 `"error": "auth_failed"`，前端展示凭据异常提示
 - 单条命令失败（如 `smartctl` 无权限）：跳过该指标，其余照常采集，在日志中记录跳过原因
-- 连续 3 轮全部失败：降低采集频率为 5 分钟，避免无意义重试
+- 连续 3 轮全部失败：降低采集频率为 5 分钟，避免无意义重试。**恢复**：任意一轮采集成功即恢复设备配置的原始 `collect_interval`，同时 `failureCount` 归零
 
 ### 3.6 指标写入流程
 
@@ -219,8 +242,20 @@ GET    /api/v1/nas-devices              # 列表（含最新状态）
 POST   /api/v1/nas-devices              # 添加 NAS 设备
 PUT    /api/v1/nas-devices/:id          # 编辑（名称/地址/凭据/采集间隔）
 DELETE /api/v1/nas-devices/:id          # 删除
-POST   /api/v1/nas-devices/:id/test     # SSH 连通性测试（不落库）
+POST   /api/v1/nas-devices/test         # SSH 连通性测试（不落库，接收原始连接参数）
 ```
+
+**测试连接端点说明**：`POST /nas-devices/test` 不依赖 `:id`，直接接收连接参数，支持添加前测试：
+
+```json
+{
+    "host": "192.168.1.100",
+    "port": 22,
+    "credential_id": 3
+}
+```
+
+返回：连通性结果 + NAS 类型自动检测（通过 `/etc/synoinfo.conf` 是否存在判断群晖，`/etc/fnos` 判断飞牛）+ 权限检查结果（`smartctl` 是否可用）。
 
 ### 4.2 NAS 监控数据（NAS 页面使用）
 
@@ -296,9 +331,9 @@ NAS 设备                                           [+ 添加 NAS]
 - NAS 类型：下拉选择 Synology / fnOS
 - 地址（IP/域名，必填）
 - SSH 端口（默认 22）
-- SSH 凭据（下拉选择已有凭据，复用 credentials 系统）
+- SSH 凭据：下拉**仅显示** `ssh_password` / `ssh_key` 类型的凭据（过滤掉云 AK/SK 等非 SSH 凭据）。后端 API 同样校验 credential type，拒绝非 SSH 类型。下拉尾部提供「+ 新建 SSH 凭据」入口，点击弹出凭据创建对话框（复用现有托管服务器的凭据创建流程），创建完成后自动选中
 - 采集间隔（默认 60 秒）
-- 「测试连接」按钮：SSH 连通性验证
+- 「测试连接」按钮：SSH 连通性验证（调用 `POST /nas-devices/test`）
 
 ### 5.3 NAS 列表页（`/nas`）
 
@@ -412,7 +447,7 @@ web/src/pages/Settings/index.tsx         # 新增 NAS 设备管理区块
 
 | 告警类型 | type 值 | 触发条件 | 默认级别 |
 |---------|---------|---------|---------|
-| NAS 离线 | `nas_offline` | 连续 3 轮采集失败 | critical |
+| NAS 离线 | `nas_offline` | collector 维护的 failureCount >= 3（见 6.2） | critical |
 | RAID 降级 | `nas_raid_degraded` | RAID 状态 = degraded | critical |
 | 硬盘 S.M.A.R.T. 异常 | `nas_disk_smart` | smart_healthy = 0 | critical |
 | 硬盘温度过高 | `nas_disk_temperature` | 温度 > 阈值（默认 55°C） | warning |
@@ -430,6 +465,15 @@ web/src/pages/Settings/index.tsx         # 新增 NAS 设备管理区块
 5. **评估频率说明**：告警引擎 30 秒评估一次，NAS 默认 60 秒采集一次。`evaluateNas()` 应检查缓存指标的时间戳，若与上次评估相同则跳过，避免对同一份数据重复计算 `consecutiveHits`
 6. **告警规则 UI**：目标类型下拉新增 `nas` 选项，选中后 target 列表展示 NAS 设备而非服务器
 
+### 6.2 NAS 离线告警的独立检测路径
+
+`nas_offline` 不能基于快照时间戳判定（采集失败时不会产生新快照），需要独立机制：
+
+- **NasCollector 维护 per-device 状态**：`failureCount int`（连续失败次数）、`lastError string`（最后一次错误类型）
+- **每轮采集后更新**：成功 → `failureCount = 0`；失败 → `failureCount++`
+- **evaluateNas() 对 nas_offline 规则走独立分支**：不读快照，直接从 `NasCollector.GetDeviceHealth(nasID)` 获取 `failureCount`，`>= 3` 即触发
+- **与退避机制协调**：连续 3 轮失败后采集频率降为 5 分钟，但 `failureCount` 继续累加。**恢复策略**：任意一轮采集成功即恢复原始采集间隔，`failureCount` 归零
+
 ## 七、现有代码改造
 
 | 改造项 | 影响范围 |
@@ -443,7 +487,7 @@ web/src/pages/Settings/index.tsx         # 新增 NAS 设备管理区块
 | 侧边栏 | Sidebar.tsx 新增菜单项 |
 | WebSocket | hub.go 新增 nas_metrics/nas_status 广播，useWebSocket.ts 新增处理 |
 | 设置页 | Settings/index.tsx 新增 NAS 设备管理区块 |
-| 审计中间件 | logging/middleware.go `auditRoutes` 新增：`POST /nas-devices` → create/nas_device，`PUT /nas-devices/` → update/nas_device，`DELETE /nas-devices/` → delete/nas_device，`POST /nas-devices/.../test` → test/nas_device |
+| 审计中间件 | logging/middleware.go `auditRoutes` 新增（**注意顺序**：`/test` 精确匹配必须排在 `POST /nas-devices` 之前，否则会被前缀匹配误判为 create）：`POST /nas-devices/test` → test/nas_device，`POST /nas-devices` → create/nas_device，`PUT /nas-devices/` → update/nas_device，`DELETE /nas-devices/` → delete/nas_device |
 
 ## 八、不做的事（YAGNI）
 
