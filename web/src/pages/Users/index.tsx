@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { getUsers, createUser, updateUser, deleteUser, resetPassword, type UserInfo } from '../../api/users'
 
@@ -10,6 +11,7 @@ const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
 }
 
 export default function Users() {
+  const navigate = useNavigate()
   const { role: myRole, username: myUsername } = useAuthStore()
   const [users, setUsers] = useState<UserInfo[]>([])
   const [showCreate, setShowCreate] = useState(false)
@@ -159,6 +161,11 @@ export default function Users() {
                             <button onClick={() => openEdit(u)} className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded transition-colors">
                               编辑
                             </button>
+                            {u.role !== 'admin' && (
+                              <button onClick={() => navigate(`/users/${u.id}/permissions`)} className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#4085db] hover:text-[#4085db] rounded transition-colors">
+                                权限
+                              </button>
+                            )}
                             <button onClick={() => { setResetTarget(u); setRPassword('') }} className="text-[11px] px-2.5 py-1 border border-[#ced4da] text-[#878a99] hover:border-[#f7b84b] hover:text-[#f7b84b] rounded transition-colors">
                               重置密码
                             </button>
