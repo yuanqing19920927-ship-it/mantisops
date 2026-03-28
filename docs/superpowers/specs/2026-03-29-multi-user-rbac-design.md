@@ -75,6 +75,7 @@ CREATE UNIQUE INDEX idx_user_perm ON user_permissions(user_id, res_type, res_id)
 - **probe** 独立勾选。虽然 `probe_rules` 表有 `server_id` 外键，但探测规则经常跨服务器（如监控外部域名），因此不跟随服务器自动授权，必须显式勾选
 - 容器和资产跟随服务器，不需要独立权限记录
 - **去重规则**：后端保存权限时进行去重——若某 server 已经属于用户绑定的 group，则不重复存储该 server 的独立记录。前端提交时无需去重，后端在全量覆盖写入前负责清理冗余
+- **operator 创建资源的自动归属**：operator 创建探测规则（POST /probes）或告警规则（POST /alerts/rules）后，后端自动为该用户添加对应的 `user_permissions` 记录（`res_type=probe, res_id=新规则ID`），确保创建者能立即看到和管理自己创建的资源。同理，operator 删除自己有权限的 probe/alert_rule 时，对应权限记录也自动清理。admin 创建资源无需此逻辑（admin 不受权限限制）
 
 ### 2.3 JWT payload
 
@@ -170,7 +171,15 @@ admin 直接放行。operator / viewer 需要检查：
 
 **列表接口过滤：**
 
-返回数据时按用户可见资源集合过滤结果列表。如 `GET /api/v1/servers` 只返回用户有权限的服务器。Dashboard 概览数据同理，统计数字和列表都按权限范围计算。
+返回数据时按用户可见资源集合过滤结果列表：
+- `GET /servers`、`GET /dashboard` — 按可见服务器过滤，统计数字也按范围计算
+- `GET /databases` — 按可见数据库过滤
+- `GET /probes`、`GET /probes/status` — 按可见探测规则过滤
+- `GET /assets` — 按可见服务器过滤（资产跟随服务器）
+- `GET /containers`（Dashboard WebSocket） — 按可见服务器过滤
+- `GET /alerts/events`、`GET /alerts/stats` — **按告警目标资源过滤**：事件的 `target_id` 映射到服务器/探测规则，只返回用户有权限的目标的告警
+- `GET /alerts/rules` — 按规则的 `target_id` 过滤（`target_id` 为空表示全局规则，如 `server_offline`，所有用户可见）
+- `GET /billing` — 按可见数据库/服务器过滤（ECS/RDS 资源与 cloud_instances 的 host_id 关联）
 
 **资源权限缓存：**
 
@@ -198,16 +207,50 @@ type PermissionSet struct {
 
 新增 Hub 方法：
 ```go
-func (h *Hub) BroadcastMetrics(hostID string, msg interface{})  // 按权限过滤
-func (h *Hub) BroadcastAlert(msg interface{})                    // 告警广播（所有连接）
-func (h *Hub) BroadcastLog(source string, msg interface{})       // 按日志来源过滤
+func (h *Hub) BroadcastMetrics(hostID string, msg interface{})            // 按可见服务器过滤
+func (h *Hub) BroadcastAlert(targetType, targetID string, msg interface{}) // 按告警目标资源过滤
+func (h *Hub) BroadcastLog(source string, msg interface{})                // 按日志来源过滤
 ```
 
-原有 `BroadcastJSON` 保留用于无需过滤的全局消息（如 alert_resolved/alert_acked）。
+**告警广播过滤规则**：告警事件携带 `target_id`（服务器 host_id 或探测规则 ID），`BroadcastAlert` 根据告警类型判断目标资源类型：
+- `server_offline / cpu / memory / disk / network_rx / network_tx / gpu_*` → 检查连接的 `PermissionSet.Servers` 是否包含 `target_id`
+- `probe_down` → 检查连接的 `PermissionSet.Probes` 是否包含 `target_id`
+- `container` → 检查容器所在服务器是否在 `PermissionSet.Servers` 中
+- admin 连接（PermissionSet 为 nil）始终放行
 
-用户权限变更时，Hub 需要更新该用户所有活跃连接的 PermissionSet（通过 user_id 查找）。
+`alert_resolved` 和 `alert_acked` 同样需要按原始事件的 target 过滤，不能无差别广播。原有 `BroadcastJSON` 废弃，所有推送都走带过滤的方法。
+
+**连接生命周期管理：**
+
+Hub 维护 `map[user_id][]*Connection` 索引，支持按 user_id 查找所有活跃连接。
+
+以下操作触发 **强制断开** 该用户所有 WS 连接（发送 close frame 后关闭）：
+- 账号禁用
+- 删除用户
+- 角色降权（如 admin → operator，operator → viewer）
+- 管理员重置密码
+
+以下操作触发 **更新 PermissionSet**（不断连，热更新权限范围）：
+- 资源权限变更（PUT /users/:id/permissions）
+- 角色升权（如 viewer → operator）
+
+断连后前端 WebSocket 自动重连机制会触发，此时用旧 token 重连会被 JWT 校验拒绝（token_version 已递增），前端收到 401 后跳转登录页。
 
 日志订阅同理：运行日志按可见来源过滤，审计日志仅 admin 连接可收到。
+
+### 3.7 系统不变量
+
+**至少保留一个启用的 admin 用户**。以下操作必须在后端校验此约束，违反时返回 `409 Conflict`：
+
+- 禁用用户：若目标是 admin，检查剩余 enabled admin 数量 > 1
+- 删除用户：若目标是 admin，检查剩余 enabled admin 数量 > 1
+- 角色降权：若从 admin 降为其他角色，检查剩余 enabled admin 数量 > 1
+- 禁用自己：**不允许**（不论角色），返回 `409 {"error": "cannot disable yourself"}`
+- 删除自己：**不允许**，返回 `409 {"error": "cannot delete yourself"}`
+
+前端同步做防护：
+- 编辑自己时，角色选择器和启用/禁用开关置灰不可操作
+- 当系统只剩一个 admin 时，该用户的角色选择器和禁用/删除按钮置灰，tooltip 提示"系统至少需要一个管理员"
 
 ## 四、API 端点
 
@@ -356,8 +399,15 @@ GET    /api/v1/auth/me                # 获取当前用户信息（含 role）
 - 保存按钮提交全量权限列表
 
 **强制改密页（/change-password）：**
-- 新密码 + 确认密码
-- 成功后签发新 token 并跳转首页
+- 初始密码（旧密码）+ 新密码 + 确认新密码
+- 提示文案："管理员已为您设置初始密码，请输入初始密码后设置新密码"
+- 调用 `PUT /api/v1/auth/password`（`old_password` = 初始密码，`new_password` = 新密码）
+- 成功后用响应中的新 token 替换本地存储，跳转首页
+
+**普通改密（用户菜单入口）：**
+- 在用户菜单下拉中增加"修改密码"入口，打开对话框
+- 旧密码 + 新密码 + 确认新密码
+- 复用同一个 `PUT /api/v1/auth/password` 接口
 
 ### 6.2 路由守卫扩展
 
@@ -413,9 +463,21 @@ interface AuthState {
 ### 7.2 运行日志权限过滤
 
 - 审计日志（audit tab）：仅 admin 可查看
-- 运行日志（runtime tab）：按用户可见的 source 过滤
-  - admin 看到全部
-  - 其他用户只看到 `source = server` 和 `source = agent:{可见的host_id}` 的日志
+- 运行日志（runtime tab）：按用户可见范围严格过滤
+  - admin 看到全部（`source=server` + 所有 `agent:*`）
+  - **operator/viewer 只能看到 `source = agent:{可见的host_id}` 的日志**
+  - `source = server` 是全局服务端系统日志（告警引擎、采集器、部署器等模块输出），包含所有服务器的运维信息，**非 admin 不可见**
+  - WebSocket 日志推送同理：订阅时 Hub 按连接的 PermissionSet 过滤 source
+
+### 7.3 日志端点 RBAC 规则
+
+| 端点 | 最低角色 | 资源过滤 |
+|------|---------|---------|
+| GET /logs/audit | admin | 无需过滤（admin only） |
+| GET /logs/runtime | viewer | 按上述 7.2 规则过滤 source |
+| GET /logs/export | viewer | 审计导出需 admin；运行日志导出按 7.2 过滤 |
+| GET /logs/sources | viewer | 只返回用户可见的 source 列表（admin 全部，其他用户只有 `agent:{可见host_id}`） |
+| GET /logs/stats | viewer | 按用户可见 source 范围统计（admin 看全局统计，其他用户看可见范围统计） |
 
 ## 八、现有代码改造
 
