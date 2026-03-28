@@ -7,6 +7,7 @@ import (
 
 	"database/sql"
 
+	"mantisops/server/internal/ai"
 	"mantisops/server/internal/alert"
 	"mantisops/server/internal/api"
 	"mantisops/server/internal/cloud"
@@ -179,7 +180,7 @@ func main() {
 	if cfg.Server.PSKToken == "" {
 		log.Fatalf("FATAL: server.psk_token must be configured (non-empty)")
 	}
-	handler := grpcpkg.NewHandler(serverStore, mc.Handle, dep.NotifyRegistered)
+	handler := grpcpkg.NewHandler(serverStore, mc.Handle, dep.NotifyRegistered, discoveredServiceStore, assetStore)
 	psk := grpcpkg.NewPSKInterceptor(cfg.Server.PSKToken)
 	go func() {
 		if err := grpcpkg.StartPlain(cfg.Server.GRPCAddr, handler, psk); err != nil {
@@ -239,7 +240,26 @@ func main() {
 	settingsStore := store.NewSettingsStore(db)
 	settingsHandler := api.NewSettingsHandler(settingsStore)
 
-	// 21. HTTP API
+	// 21. AI system
+	var aiHandler *api.AIHandler
+	if cfg.AI.Enabled {
+		aiStore := store.NewAIStore(db)
+		providerMgr := ai.NewProviderManager(&cfg.AI, settingsStore, masterKey)
+		dataCollector := ai.NewDataCollector(cfg.Victoria.URL, serverStore, alertStore, cfg.AI.Timezone)
+		reporter := ai.NewReporter(aiStore, dataCollector, providerMgr, hub, cfg.AI)
+		chatEngine := ai.NewChatEngine(aiStore, providerMgr, dataCollector, hub, cfg.AI.Chat)
+		scheduler := ai.NewScheduler(aiStore, reporter, cfg.AI.Timezone)
+
+		hub.SetOnAIStreamSubscribe(chatEngine.OnStreamSubscribe)
+
+		scheduler.Start()
+		defer scheduler.Stop()
+
+		aiHandler = api.NewAIHandler(aiStore, reporter, chatEngine, providerMgr, scheduler, settingsStore, masterKey)
+		log.Println("AI analysis module enabled")
+	}
+
+	// 22. HTTP API
 	router := api.SetupRouter(api.RouterDeps{
 		ServerStore:          serverStore,
 		GroupStore:           groupStore,
@@ -263,6 +283,7 @@ func main() {
 		SettingsHandler:      settingsHandler,
 		UserHandler:          userHandler,
 		PermissionCache:      permCache,
+		AIHandler:            aiHandler,
 	})
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
