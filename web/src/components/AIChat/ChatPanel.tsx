@@ -95,7 +95,7 @@ export function ChatPanel() {
     const content = input.trim()
     if (!content || sending || streamingMessageId) return
 
-    let convId = activeConversationId
+    let convId: number = activeConversationId ?? 0
 
     // Create conversation if none active
     if (!convId) {
