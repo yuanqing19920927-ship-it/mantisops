@@ -17,6 +17,7 @@ type DashboardHandler struct {
 	serverStore     *store.ServerStore
 	metricsProvider MetricsProvider
 	groupStore      *store.GroupStore
+	permCache       *PermissionCache
 }
 
 func (h *DashboardHandler) Overview(c *gin.Context) {
@@ -25,6 +26,18 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Resource-level permission filtering
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := servers[:0]
+		for _, s := range servers {
+			if ps.CanSeeServer(s.HostID) {
+				filtered = append(filtered, s)
+			}
+		}
+		servers = filtered
+	}
+
 	online, total := 0, len(servers)
 	for _, s := range servers {
 		if s.Status == "online" {

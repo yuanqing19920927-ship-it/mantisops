@@ -269,6 +269,18 @@ func (s *AlertStore) GetStats() (*model.AlertStats, error) {
 	return &st, nil
 }
 
+func (s *AlertStore) GetEvent(id int) (*model.AlertEvent, error) {
+	var e model.AlertEvent
+	err := s.db.QueryRow(
+		`SELECT id, rule_id, rule_name, target_id, target_label, level, status, silenced, value, message, fired_at, resolved_at, resolve_type, acked_at, acked_by
+		 FROM alert_events WHERE id=?`, id).
+		Scan(&e.ID, &e.RuleID, &e.RuleName, &e.TargetID, &e.TargetLabel, &e.Level, &e.Status, &e.Silenced, &e.Value, &e.Message, &e.FiredAt, &e.ResolvedAt, &e.ResolveType, &e.AckedAt, &e.AckedBy)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
 func (s *AlertStore) AckEvent(id int, username string) error {
 	_, err := s.db.Exec(
 		`UPDATE alert_events SET silenced=1, acked_at=?, acked_by=? WHERE id=?`,

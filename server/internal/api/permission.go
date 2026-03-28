@@ -102,6 +102,24 @@ func (ps *PermissionSet) CanSeeLogSource(source string) bool {
 	return false
 }
 
+// CanSeeEvent checks if the user can see an alert event by its target_id.
+// Probe IDs are numeric-only; server targets may include "host_id:suffix" for disk/container.
+func (ps *PermissionSet) CanSeeEvent(targetID string) bool {
+	if ps == nil {
+		return true
+	}
+	// Check if it's a probe (numeric ID)
+	if ps.Probes[targetID] {
+		return true
+	}
+	// Extract host_id (before colon for disk/container targets)
+	hostID := targetID
+	if idx := strings.IndexByte(targetID, ':'); idx > 0 {
+		hostID = targetID[:idx]
+	}
+	return ps.Servers[hostID]
+}
+
 // AllVisibleTargetIDs returns all target IDs for SQL-level filtering (servers + probes).
 func (ps *PermissionSet) AllVisibleTargetIDs() []string {
 	if ps == nil {

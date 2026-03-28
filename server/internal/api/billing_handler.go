@@ -20,9 +20,10 @@ import (
 )
 
 type BillingHandler struct {
-	cloudStore *store.CloudStore
-	credStore  *store.CredentialStore
+	cloudStore  *store.CloudStore
+	credStore   *store.CredentialStore
 	fallbackCfg config.AliyunConfig // 向后兼容：当数据库无账号时使用
+	permCache   *PermissionCache    // TODO: add instance_id → host_id filtering (requires CloudStore changes)
 
 	mu    sync.RWMutex
 	cache []BillingItem
@@ -51,11 +52,12 @@ type billingAccount struct {
 	regions  []string
 }
 
-func NewBillingHandler(cloudStore *store.CloudStore, credStore *store.CredentialStore, fallbackCfg config.AliyunConfig) *BillingHandler {
+func NewBillingHandler(cloudStore *store.CloudStore, credStore *store.CredentialStore, fallbackCfg config.AliyunConfig, pc *PermissionCache) *BillingHandler {
 	h := &BillingHandler{
 		cloudStore:  cloudStore,
 		credStore:   credStore,
 		fallbackCfg: fallbackCfg,
+		permCache:   pc,
 	}
 
 	// 启动时后台预加载，不阻塞主线程
