@@ -14,11 +14,15 @@ const baseLinks = [
   { to: '/logs', label: '日志中心', icon: 'article' },
   { to: '/ai-reports', label: 'AI 报告', icon: 'analytics' },
   { to: '/billing', label: '资源到期', icon: 'event_upcoming' },
-  { to: '/settings', label: '系统信息', icon: 'settings' },
 ]
 
 const adminLinks = [
+  { to: '/system', label: '系统设置', icon: 'admin_panel_settings' },
   { to: '/users', label: '用户管理', icon: 'group' },
+]
+
+const tailLinks = [
+  { to: '/settings', label: '系统信息', icon: 'info' },
 ]
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -28,6 +32,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const links = useMemo(() => [
     ...baseLinks,
     ...(role === 'admin' ? adminLinks : []),
+    ...tailLinks,
   ], [role])
 
   useEffect(() => { onClose() }, [location.pathname])

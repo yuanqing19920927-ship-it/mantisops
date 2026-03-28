@@ -1,29 +1,33 @@
 # MantisOps 前端功能模块说明
 
-> 访问地址：http://192.168.10.65:3080
 > 技术栈：React 19 + TypeScript + TailwindCSS v4 + Recharts + Zustand
-> 设计系统：Kinetic Observatory（深色/浅色双主题）
-> 字体：Space Grotesk（标题）+ Inter（正文）+ Material Symbols Outlined（图标）
-> 认证：JWT 登录鉴权，所有 API 受保护
+> 图标：Material Symbols Outlined
+> 认证：JWT 多用户鉴权（admin/operator/viewer 三级角色）
 
 ---
 
 ## 一、页面总览
 
-| 页面 | 路由 | 菜单名称 | 定位 |
-|------|------|---------|------|
-| 登录 | `/login` | — | JWT 登录页面，未认证自动跳转 |
-| 仪表盘 | `/` | 仪表盘 | 全局总览中心：6 统计卡片 + 告警/RDS/到期摘要 + 分组服务器列表 + 端口摘要 + 资源排行 |
-| 服务器列表 | `/servers` | 服务器 | 所有服务器详细视图，卡片/表格双模式，支持自定义分组 |
-| 服务器详情 | `/servers/:id` | — | 单台服务器：实时概览 + 运行业务 + Docker 容器 + 历史趋势 |
-| 数据库监控 | `/databases` | 数据库 | RDS 实例列表与实时指标 |
-| 数据库详情 | `/databases/:id` | — | 单个数据库实例的实时指标瓦片 + 历史趋势图 |
-| 容器管理 | `/containers` | 容器管理 | 全局 Docker 容器聚合列表，跨服务器查看/搜索/筛选 |
-| 端口监控 | `/probes` | 端口监控 | TCP/HTTP/HTTPS 多协议探测规则管理与实时状态，SSL 证书到期徽章 |
-| 本地业务 | `/assets` | 本地业务 | 服务器上部署的项目/服务资产管理 |
-| 告警中心 | `/alerts` | 告警中心 | 告警事件管理 + 告警规则配置 + 通知渠道管理 |
-| 资源到期 | `/billing` | 资源到期 | ECS/RDS/SSL 到期提醒，分类筛选（全部/ECS/RDS/SSL） |
-| 系统信息 | `/settings` | 系统信息 | 系统版本 + 已注册 Agent 列表 |
+| 页面 | 路由 | 菜单名称 | 权限 | 定位 |
+|------|------|---------|------|------|
+| 登录 | `/login` | — | 公开 | JWT 登录页面，未认证自动跳转 |
+| 强制改密 | `/change-password` | — | 公开 | 首次登录强制修改密码 |
+| 仪表盘 | `/` | 仪表盘 | all | 全局总览：统计卡片 + 告警/RDS/到期摘要 + 分组服务器列表 + 端口摘要 |
+| 服务器列表 | `/servers` | 服务器 | all | 卡片/表格双视图，自定义分组 + 排序 |
+| 服务器详情 | `/servers/:id` | — | all | 实时概览 + Docker 容器 + 历史趋势 + Agent 配置 |
+| NAS 存储 | `/nas` | NAS 存储 | all | NAS 设备列表 + 实时指标 |
+| NAS 详情 | `/nas/:id` | — | all | RAID/S.M.A.R.T./存储卷/UPS + 历史趋势 |
+| 数据库监控 | `/databases` | 数据库 | all | RDS 实例列表（按云账号分组）+ 实时指标 |
+| 数据库详情 | `/databases/:id` | — | all | RDS 实例指标瓦片 + 历史趋势图 |
+| 端口监控 | `/probes` | 端口监控 | all | 探测规则管理 + 实时状态 + 服务器自动扫描 + SSL 到期徽章 |
+| 托管业务 | `/assets` | 托管业务 | all | 按服务器分组的资产表格，CRUD + 技术栈标签 |
+| 告警中心 | `/alerts` | 告警中心 | all | 告警事件 + 规则配置 + 通知渠道 |
+| 日志中心 | `/logs` | 日志中心 | all | 操作审计 Tab + 运行日志 Tab（查询/实时） |
+| AI 报告 | `/ai-reports` | AI 报告 | all | AI 运维分析报告 + 对话 |
+| 资源到期 | `/billing` | 资源到期 | all | ECS/RDS/SSL 到期提醒 |
+| 系统设置 | `/system` | 系统设置 | admin | 平台配置 + 接入管理 + NAS/托管服务器/云账号管理 + AI 配置 |
+| 用户管理 | `/users` | 用户管理 | admin | 用户 CRUD + 角色 + 资源权限配置 |
+| 系统信息 | `/settings` | 系统信息 | all | 系统版本 + 已注册 Agent 列表（Docker/GPU 状态） |
 
 ---
 
@@ -468,21 +472,9 @@ ECS / RDS / SSL 证书到期提醒。
 ## 九、架构
 
 ```
-浏览器 → Nginx (:3080)
-            ├── /                          → 静态文件 (~/mantisops/web/dist/)
-            ├── /api/*                     → Go Server (127.0.0.1:3100)
+浏览器 → Nginx
+            ├── /                          → 静态文件 (web/dist/)
+            ├── /api/*                     → Go Server (HTTP)
             ├── /ws                        → Go Server (WebSocket)
-            └── /vm/api/v1/query_range     → VictoriaMetrics (127.0.0.1:8428)
+            └── /vm/api/v1/query_range     → VictoriaMetrics
 ```
-
----
-
-## 十、当前接入服务器
-
-| 服务器 | Host ID | IP | CPU | 内存 | 磁盘 | 特性 |
-|--------|---------|-----|-----|------|------|------|
-| yuanqing2 | srv-65-yuanqing2 | 192.168.10.65 | 8核 Xeon 4210 | 16GB | 193GB | Docker 容器、MantisOps Server |
-| ai | srv-69-ai | 192.168.10.69 | 16核 i7-10700K | 64GB | 434GB | GPU 采集 (RTX 3090 24GB)、Ollama |
-| zentao | srv-62-zentao | 192.168.10.62 | 4核 Xeon 4210 | 16GB | 46GB | Docker（权限受限） |
-| sing-box | srv-63-singbox | 192.168.10.63 | 2核 Xeon 4210 | 4GB | 46GB | 代理网关 |
-| 阿里云 ECS | aliyun-i-bp1... | 47.98.217.67 | 2核 Xeon Platinum | 8GB | 197GB | 云监控 API 采集 |

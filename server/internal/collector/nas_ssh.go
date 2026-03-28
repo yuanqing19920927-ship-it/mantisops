@@ -296,6 +296,8 @@ func parseDf(data string, nasType string) []NasVolume {
 			keep = !strings.HasPrefix(mount, "/boot") &&
 				mount != "/" &&
 				!strings.HasPrefix(mount, "/snap") &&
+				!strings.Contains(mount, "/docker/") &&
+				fsType != "overlay" &&
 				total >= 10*1024*1024*1024 // >= 10GB
 		default:
 			keep = total >= 10*1024*1024*1024

@@ -4,7 +4,9 @@ package reporter
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,12 +20,13 @@ import (
 )
 
 type Reporter struct {
-	cfg    *config.Config
-	hostID string
-	client pb.AgentServiceClient
-	conn   *grpc.ClientConn
-	cpuCol *collector.CPUCollector
-	netCol *collector.NetworkCollector
+	cfg          *config.Config
+	hostID       string
+	client       pb.AgentServiceClient
+	conn         *grpc.ClientConn
+	cpuCol       *collector.CPUCollector
+	netCol       *collector.NetworkCollector
+	lastSvcSig   string // change detection for services
 }
 
 func New(cfg *config.Config) *Reporter {
@@ -86,8 +89,13 @@ func (r *Reporter) RunLoop(ctx context.Context) {
 	interval := time.Duration(r.cfg.Collect.Interval) * time.Second
 	metricsTicker := time.NewTicker(interval)
 	heartbeatTicker := time.NewTicker(30 * time.Second)
+	servicesTicker := time.NewTicker(60 * time.Second)
 	defer metricsTicker.Stop()
 	defer heartbeatTicker.Stop()
+	defer servicesTicker.Stop()
+
+	// Report services immediately on startup
+	r.reportServices()
 
 	for {
 		select {
@@ -97,6 +105,8 @@ func (r *Reporter) RunLoop(ctx context.Context) {
 			r.reportMetrics()
 		case <-heartbeatTicker.C:
 			r.heartbeat()
+		case <-servicesTicker.C:
+			r.reportServices()
 		}
 	}
 }
@@ -195,6 +205,54 @@ func (r *Reporter) heartbeat() {
 	}); err != nil {
 		log.Printf("heartbeat error: %v", err)
 	}
+}
+
+func (r *Reporter) reportServices() {
+	services, err := collector.CollectListeningServices()
+	if err != nil {
+		log.Printf("services collect error: %v", err)
+		return
+	}
+
+	// Full-field signature for change detection (pid:name:port:proto:addr)
+	sort.Slice(services, func(i, j int) bool {
+		return services[i].Port < services[j].Port
+	})
+	var sig string
+	for _, s := range services {
+		sig += fmt.Sprintf("%d:%s:%d:%s:%s,", s.PID, s.Name, s.Port, s.Protocol, s.BindAddr)
+	}
+	if sig == r.lastSvcSig {
+		return // no change
+	}
+
+	var pbServices []*pb.ListeningService
+	for _, s := range services {
+		pbServices = append(pbServices, &pb.ListeningService{
+			Pid:      int32(s.PID),
+			Name:     s.Name,
+			CmdLine:  s.CmdLine,
+			Port:     int32(s.Port),
+			Protocol: s.Protocol,
+			BindAddr: s.BindAddr,
+		})
+	}
+
+	resp, err := r.client.ReportServices(r.authCtx(), &pb.ReportServicesRequest{
+		HostId:   r.hostID,
+		Services: pbServices,
+	})
+	if err != nil {
+		log.Printf("report services error: %v", err)
+		r.lastSvcSig = "" // reset to retry next time
+		return
+	}
+	if !resp.Ok {
+		// Server failed to persist — reset sig to force retry
+		r.lastSvcSig = ""
+		return
+	}
+	r.lastSvcSig = sig
 }
 
 func (r *Reporter) Close() {

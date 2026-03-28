@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useServerStore } from '../../stores/serverStore'
 import { getServer, updateServerName, getAssets, type AssetInfo } from '../../api/client'
+import api from '../../api/client'
 import { HistoryChart } from '../../components/HistoryChart'
 import type { Server } from '../../types'
 import { formatBytes, formatBytesPS, timeSince } from '../../utils/format'
@@ -25,6 +26,11 @@ export default function ServerDetail() {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [assets, setAssets] = useState<AssetInfo[]>([])
+  const [showConfig, setShowConfig] = useState(false)
+  const [cfgDocker, setCfgDocker] = useState(false)
+  const [cfgGPU, setCfgGPU] = useState(false)
+  const [cfgSaving, setCfgSaving] = useState(false)
+  const [cfgSaved, setCfgSaved] = useState(false)
 
   function calcWindow(range: TimeRange) {
     const now = Math.floor(Date.now() / 1000)
@@ -219,9 +225,115 @@ export default function ServerDetail() {
               />
               {isOnline ? 'online' : 'offline'}
             </span>
+
+            {/* Config button */}
+            <button
+              onClick={() => {
+                setCfgDocker(server.collect_docker ?? (metrics?.containers !== undefined))
+                setCfgGPU(server.collect_gpu ?? !!server.gpu_model)
+                setCfgSaved(false)
+                setShowConfig(true)
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 text-[12px] border rounded transition-colors ml-2"
+              style={{ borderColor: '#ced4da', color: '#878a99' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#2ca07a'; e.currentTarget.style.color = '#2ca07a' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#ced4da'; e.currentTarget.style.color = '#878a99' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>settings</span>
+              配置
+            </button>
           </div>
         </div>
       </div>
+
+      {/* ── Agent Config Dialog ── */}
+      {showConfig && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowConfig(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-[420px] max-w-[90vw] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[#e9ebec] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#2ca07a]/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[#2ca07a] text-[16px]">settings</span>
+              </div>
+              <h3 className="text-sm font-semibold text-[#495057]">Agent 采集配置</h3>
+            </div>
+
+            <div className="px-5 py-5 space-y-4">
+              {/* Docker toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[13px] font-medium text-[#495057]">Docker 容器监控</div>
+                  <div className="text-[11px] text-[#878a99] mt-0.5">采集容器 CPU、内存、状态等指标</div>
+                </div>
+                <button onClick={() => setCfgDocker(!cfgDocker)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${cfgDocker ? 'bg-[#2ca07a]' : 'bg-[#ced4da]'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${cfgDocker ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+
+              {/* GPU toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[13px] font-medium text-[#495057]">GPU 监控</div>
+                  <div className="text-[11px] text-[#878a99] mt-0.5">采集 GPU 使用率、显存、温度（需 nvidia-smi）</div>
+                </div>
+                <button onClick={() => setCfgGPU(!cfgGPU)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${cfgGPU ? 'bg-[#2ca07a]' : 'bg-[#ced4da]'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${cfgGPU ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+
+              {/* Status info */}
+              <div className="bg-[#f8f9fa] rounded-lg p-3 text-[11px] text-[#878a99] space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-[#0ab39c]' : 'bg-[#f06548]'}`} />
+                  Agent 状态: {isOnline ? '在线' : '离线'}
+                </div>
+                <div>Agent 版本: {server.agent_version || '-'}</div>
+                <div>最后心跳: {server.last_seen ? timeSince(server.last_seen) : '-'}</div>
+                {server.gpu_model && <div>GPU: {server.gpu_model}</div>}
+              </div>
+
+              <div className="bg-[#fff8e1] rounded-lg p-3 text-[11px] text-[#856404] flex gap-2">
+                <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">info</span>
+                <span>配置保存后需重启 Agent 才能生效。托管服务器可通过「重新部署」应用配置。</span>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-[#e9ebec] flex items-center justify-between">
+              {cfgSaved && (
+                <span className="text-[12px] text-[#0ab39c] flex items-center gap-1">
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check_circle</span>
+                  已保存
+                </span>
+              )}
+              {!cfgSaved && <span />}
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowConfig(false)}
+                  className="text-[12px] px-4 py-2 border border-[#ced4da] text-[#878a99] rounded-lg hover:bg-[#f8f9fa] transition-colors">
+                  关闭
+                </button>
+                <button
+                  disabled={cfgSaving}
+                  onClick={async () => {
+                    setCfgSaving(true)
+                    try {
+                      await api.put(`/servers/${id}/config`, { collect_docker: cfgDocker, collect_gpu: cfgGPU })
+                      setCfgSaved(true)
+                      // Update local server state
+                      setServer({ ...server, collect_docker: cfgDocker, collect_gpu: cfgGPU })
+                    } catch (err) {
+                      console.error('[config] save:', err)
+                    }
+                    setCfgSaving(false)
+                  }}
+                  className="text-[12px] px-4 py-2 bg-[#2ca07a] text-white rounded-lg hover:bg-[#248a69] transition-colors disabled:opacity-50">
+                  {cfgSaving ? '保存中...' : '保存配置'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Bento Grid ── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5">

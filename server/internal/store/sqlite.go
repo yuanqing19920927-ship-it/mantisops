@@ -18,9 +18,20 @@ func InitSQLite(path string) (*sql.DB, error) {
 	for _, col := range []string{
 		"ALTER TABLE servers ADD COLUMN collect_docker BOOLEAN",
 		"ALTER TABLE servers ADD COLUMN collect_gpu BOOLEAN",
+		"ALTER TABLE probe_rules ADD COLUMN source TEXT DEFAULT 'manual'",
 	} {
-		db.Exec(col) // ignore "duplicate column" errors
+		db.Exec(col)
 	}
+
+	// Seed scan templates (ignore duplicate errors)
+	for _, t := range []struct{ Port int; Name string }{
+		{22, "SSH"}, {80, "HTTP"}, {443, "HTTPS"}, {3306, "MySQL"},
+		{5432, "PostgreSQL"}, {6379, "Redis"}, {8080, "HTTP-Alt"},
+		{8443, "HTTPS-Alt"}, {9090, "管理面板"}, {27017, "MongoDB"},
+	} {
+		db.Exec("INSERT OR IGNORE INTO scan_templates (port, name, sort_order) VALUES (?, ?, ?)", t.Port, t.Name, t.Port)
+	}
+
 	return db, nil
 }
 
@@ -235,6 +246,34 @@ func migrate(db *sql.DB) error {
 			res_id   TEXT NOT NULL
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_perm ON user_permissions(user_id, res_type, res_id)`,
+
+		// Scan templates
+		`CREATE TABLE IF NOT EXISTS scan_templates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			port INTEGER NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			enabled BOOLEAN DEFAULT 1,
+			sort_order INTEGER DEFAULT 0
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_templates_port ON scan_templates(port)`,
+
+		// Discovered services (agent auto-discovery)
+		`CREATE TABLE IF NOT EXISTS discovered_services (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			host_id TEXT NOT NULL,
+			pid INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			cmd_line TEXT DEFAULT '',
+			port INTEGER NOT NULL,
+			protocol TEXT DEFAULT 'tcp',
+			bind_addr TEXT DEFAULT '0.0.0.0',
+			status TEXT DEFAULT 'running',
+			asset_id INTEGER DEFAULT NULL,
+			first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_discovered_host ON discovered_services(host_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_discovered_unique ON discovered_services(host_id, port, protocol)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

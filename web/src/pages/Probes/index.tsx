@@ -1,7 +1,358 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { getProbes, getProbeStatus, createProbe, deleteProbe, type ProbeRule } from '../../api/client'
+import { getScanTemplates, createScanTemplate, deleteScanTemplate, startScan, type ScanTemplate } from '../../api/scan'
 import { useAuthStore } from '../../stores/authStore'
+import { useServerStore } from '../../stores/serverStore'
 import type { ProbeResult } from '../../types'
+
+// ─── Scan Dialog ─────────────────────────────────────────────────────────────
+
+interface ScanProgress {
+  scanned: number
+  total: number
+  found: number
+}
+
+interface ScanComplete {
+  open_ports: number
+  rules_created: number
+}
+
+function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const servers = useServerStore((s) => s.servers)
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [templates, setTemplates] = useState<ScanTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [newPort, setNewPort] = useState('')
+  const [newName, setNewName] = useState('')
+  const [addingTemplate, setAddingTemplate] = useState(false)
+
+  // scanning state
+  const [scanning, setScanning] = useState(false)
+  const [progress, setProgress] = useState<ScanProgress | null>(null)
+  const [complete, setComplete] = useState<ScanComplete | null>(null)
+  const [scanError, setScanError] = useState('')
+
+  const loadTemplates = useCallback(async () => {
+    setTemplatesLoading(true)
+    try {
+      const t = await getScanTemplates()
+      setTemplates(t)
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadTemplates() }, [loadTemplates])
+
+  // listen for window events
+  useEffect(() => {
+    const onProgress = (e: Event) => {
+      const detail = (e as CustomEvent<ScanProgress>).detail
+      setProgress(detail)
+    }
+    const onComplete = (e: Event) => {
+      const detail = (e as CustomEvent<ScanComplete>).detail
+      setComplete(detail)
+      setScanning(false)
+      onDone()
+    }
+    window.addEventListener('scan_progress', onProgress)
+    window.addEventListener('scan_complete', onComplete)
+    return () => {
+      window.removeEventListener('scan_progress', onProgress)
+      window.removeEventListener('scan_complete', onComplete)
+    }
+  }, [onDone])
+
+  const allSelected = servers.length > 0 && selectedIds.size === servers.length
+  const someSelected = selectedIds.size > 0 && !allSelected
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(servers.map((s) => s.host_id)))
+    }
+  }
+
+  const toggleServer = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleAddTemplate = async () => {
+    const port = parseInt(newPort)
+    if (!port || port < 1 || port > 65535) return
+    setAddingTemplate(true)
+    try {
+      await createScanTemplate(port, newName.trim() || String(port))
+      setNewPort('')
+      setNewName('')
+      await loadTemplates()
+    } finally {
+      setAddingTemplate(false)
+    }
+  }
+
+  const handleDeleteTemplate = async (id: number) => {
+    await deleteScanTemplate(id)
+    await loadTemplates()
+  }
+
+  const handleStartScan = async () => {
+    if (selectedIds.size === 0) return
+    setScanError('')
+    setScanning(true)
+    setProgress(null)
+    setComplete(null)
+    try {
+      await startScan(Array.from(selectedIds))
+    } catch {
+      setScanError('扫描启动失败，请重试')
+      setScanning(false)
+    }
+  }
+
+  const progressPct = progress && progress.total > 0
+    ? Math.round((progress.scanned / progress.total) * 100)
+    : 0
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/40" onClick={complete ? onClose : undefined} />
+
+      {/* Dialog */}
+      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e9ebec]">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[#2ca07a] text-[20px]">radar</span>
+            <h2 className="text-base font-semibold text-[#495057]">扫描服务器</h2>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={scanning}
+            className="text-[#878a99] hover:text-[#495057] transition-colors disabled:opacity-40"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+          {/* Complete Result */}
+          {complete && (
+            <div className="bg-[#2ca07a]/10 border border-[#2ca07a]/30 rounded-[8px] p-4 flex items-center gap-3">
+              <span className="material-symbols-outlined text-[#2ca07a] text-[22px]">check_circle</span>
+              <p className="text-sm text-[#2ca07a] font-medium">
+                扫描完成：发现 {complete.open_ports} 个开放端口，已创建 {complete.rules_created} 条探测规则
+              </p>
+            </div>
+          )}
+
+          {/* Error */}
+          {scanError && (
+            <div className="bg-[#f06548]/10 border border-[#f06548]/30 rounded-[8px] p-4">
+              <p className="text-sm text-[#f06548]">{scanError}</p>
+            </div>
+          )}
+
+          {/* Progress bar */}
+          {(scanning || progress) && !complete && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-[#878a99]">
+                <span>扫描进度</span>
+                <span>{progress ? `${progress.scanned} / ${progress.total}` : '正在初始化...'}</span>
+              </div>
+              <div className="w-full h-2 bg-[#f3f6f9] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#2ca07a] rounded-full transition-all duration-300"
+                  style={{ width: scanning && !progress ? '5%' : `${progressPct}%` }}
+                />
+              </div>
+              {progress && (
+                <p className="text-xs text-[#878a99]">已发现 {progress.found} 个开放端口</p>
+              )}
+            </div>
+          )}
+
+          {/* Server List */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-[#495057] uppercase tracking-wide">选择服务器</h3>
+              <span className="text-xs text-[#878a99]">已选 {selectedIds.size} / {servers.length}</span>
+            </div>
+            <div className="border border-[#e9ebec] rounded-[8px] overflow-hidden">
+              {/* Select All */}
+              <label className="flex items-center gap-3 px-4 py-2.5 bg-[#f8f9fa] border-b border-[#e9ebec] cursor-pointer hover:bg-[#f3f6f9] transition-colors">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = someSelected }}
+                  onChange={toggleAll}
+                  disabled={scanning}
+                  className="w-4 h-4 accent-[#2ca07a] cursor-pointer disabled:cursor-not-allowed"
+                />
+                <span className="text-xs font-medium text-[#495057]">全选</span>
+              </label>
+              {/* Server rows */}
+              <div className="max-h-[180px] overflow-y-auto divide-y divide-[#f3f6f9]">
+                {servers.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-xs text-[#878a99]">暂无服务器数据</div>
+                ) : (
+                  servers.map((server) => (
+                    <label
+                      key={server.host_id}
+                      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[#f8f9fa] transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(server.host_id)}
+                        onChange={() => toggleServer(server.host_id)}
+                        disabled={scanning}
+                        className="w-4 h-4 accent-[#2ca07a] cursor-pointer disabled:cursor-not-allowed"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-[#495057] truncate">
+                          {server.display_name || server.host_id}
+                        </div>
+                        <div className="text-[11px] text-[#878a99] font-mono">{server.host_id}</div>
+                      </div>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Scan Templates */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-[#495057] uppercase tracking-wide">扫描端口模板</h3>
+            </div>
+            <div className="border border-[#e9ebec] rounded-[8px] overflow-hidden">
+              {/* Template list */}
+              <div className="max-h-[160px] overflow-y-auto divide-y divide-[#f3f6f9]">
+                {templatesLoading ? (
+                  <div className="px-4 py-4 text-center text-xs text-[#878a99]">加载中...</div>
+                ) : templates.length === 0 ? (
+                  <div className="px-4 py-4 text-center text-xs text-[#878a99]">暂无模板，请添加端口</div>
+                ) : (
+                  templates.map((tpl) => (
+                    <div key={tpl.id} className="flex items-center gap-3 px-4 py-2 hover:bg-[#f8f9fa] transition-colors">
+                      <span className="text-xs font-mono text-[#2ca07a] font-semibold w-12">{tpl.port}</span>
+                      <span className="text-xs text-[#495057] flex-1 truncate">{tpl.name}</span>
+                      <button
+                        onClick={() => handleDeleteTemplate(tpl.id)}
+                        disabled={scanning}
+                        className="text-[#878a99] hover:text-[#f06548] transition-colors disabled:opacity-40 p-1 rounded hover:bg-[#f06548]/10"
+                      >
+                        <span className="material-symbols-outlined text-[13px]">delete</span>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              {/* Add template row */}
+              <div className="border-t border-[#e9ebec] px-4 py-2.5 flex items-center gap-2 bg-[#f8f9fa]">
+                <input
+                  type="number"
+                  placeholder="端口"
+                  min={1}
+                  max={65535}
+                  value={newPort}
+                  onChange={(e) => setNewPort(e.target.value)}
+                  disabled={scanning}
+                  className="border border-[#e9ebec] rounded-[5px] px-2 py-1 text-xs text-[#495057] placeholder:text-[#adb5bd] w-20 focus:outline-none focus:border-[#2ca07a] disabled:opacity-40"
+                />
+                <input
+                  placeholder="描述（可选）"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  disabled={scanning}
+                  className="border border-[#e9ebec] rounded-[5px] px-2 py-1 text-xs text-[#495057] placeholder:text-[#adb5bd] flex-1 focus:outline-none focus:border-[#2ca07a] disabled:opacity-40"
+                />
+                <button
+                  onClick={handleAddTemplate}
+                  disabled={!newPort || scanning || addingTemplate}
+                  className="text-xs px-3 py-1 rounded-[5px] bg-[#f3f6f9] text-[#495057] hover:bg-[#e9ebec] transition-colors disabled:opacity-40 font-medium"
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-[#e9ebec] flex items-center justify-between gap-3">
+          <p className="text-xs text-[#878a99]">
+            {complete
+              ? '扫描已完成，探测规则已自动创建'
+              : scanning
+              ? '扫描中，请勿关闭...'
+              : `已选 ${selectedIds.size} 台服务器，${templates.length} 个端口模板`}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              disabled={scanning}
+              className="px-4 py-2 rounded-[6px] text-sm text-[#878a99] bg-[#f3f6f9] hover:bg-[#e9ebec] transition-colors disabled:opacity-40"
+            >
+              {complete ? '关闭' : '取消'}
+            </button>
+            {!complete && (
+              <button
+                onClick={handleStartScan}
+                disabled={scanning || selectedIds.size === 0 || templates.length === 0}
+                className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {scanning ? (
+                  <>
+                    <span className="material-symbols-outlined text-[15px] animate-spin">progress_activity</span>
+                    扫描中...
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[15px]">radar</span>
+                    开始扫描
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Source Badge ─────────────────────────────────────────────────────────────
+
+function SourceBadge({ source }: { source?: 'manual' | 'scan' }) {
+  if (!source || source === 'manual') {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#495057]/10 text-[#878a99] font-medium">
+        手动
+      </span>
+    )
+  }
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2ca07a]/10 text-[#2ca07a] font-medium">
+      扫描发现
+    </span>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Probes() {
   const role = useAuthStore((s) => s.role)
@@ -9,6 +360,7 @@ export default function Probes() {
   const [rules, setRules] = useState<ProbeRule[]>([])
   const [results, setResults] = useState<ProbeResult[]>([])
   const [showAdd, setShowAdd] = useState(false)
+  const [showScan, setShowScan] = useState(false)
   const [form, setForm] = useState({
     name: '', host: '', port: '', server_id: 1,
     protocol: 'tcp' as 'tcp' | 'http' | 'https',
@@ -89,13 +441,22 @@ export default function Probes() {
           <p className="text-sm text-[#878a99] mt-1">端口连通性探测与服务可用性监控</p>
         </div>
         {canEdit && (
-          <button
-            onClick={() => setShowAdd(!showAdd)}
-            className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
-          >
-            <span className="material-symbols-outlined text-[16px]">add</span>
-            添加探测规则
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowScan(true)}
+              className="inline-flex items-center gap-2 border border-[#2ca07a] text-[#2ca07a] hover:bg-[#2ca07a]/10 px-4 py-2 rounded-[6px] text-sm font-medium transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">radar</span>
+              扫描服务器
+            </button>
+            <button
+              onClick={() => setShowAdd(!showAdd)}
+              className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
+            >
+              <span className="material-symbols-outlined text-[16px]">add</span>
+              添加探测规则
+            </button>
+          </div>
         )}
       </div>
 
@@ -263,6 +624,7 @@ export default function Probes() {
                   <span className="font-medium text-[#495057] text-sm truncate">{rule.name}</span>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  <SourceBadge source={rule.source} />
                   {result?.ssl_expiry_days != null && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                       result.ssl_expiry_days > 60 ? 'bg-[#0ab39c]/10 text-[#0ab39c]' :
@@ -340,6 +702,14 @@ export default function Probes() {
           <p className="text-[#495057] text-base font-medium mb-1">暂无探测规则</p>
           <p className="text-[#878a99] text-sm">点击「添加探测规则」开始监控您的服务</p>
         </div>
+      )}
+
+      {/* Scan Dialog */}
+      {showScan && (
+        <ScanDialog
+          onClose={() => setShowScan(false)}
+          onDone={load}
+        />
       )}
     </div>
   )

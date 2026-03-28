@@ -164,8 +164,28 @@ func (nc *NasCollector) collectLoop(ctx context.Context, d store.NasDevice) {
 		interval = 30 * time.Second
 	}
 
-	// Collect immediately on start
+	// Check if system info already collected and valid
 	systemInfoCollected := false
+	if d.SystemInfo != "" && d.SystemInfo != "{}" {
+		// Valid if os_version is non-empty and doesn't contain junk (ASCII art, error msgs)
+		if strings.Contains(d.SystemInfo, `"os_version":"`) {
+			// Extract os_version value
+			idx := strings.Index(d.SystemInfo, `"os_version":"`)
+			if idx >= 0 {
+				rest := d.SystemInfo[idx+len(`"os_version":"`):]
+				endIdx := strings.Index(rest, `"`)
+				if endIdx > 0 {
+					ver := rest[:endIdx]
+					// Valid if short and doesn't contain box-drawing chars or error messages
+					if len(ver) > 0 && len(ver) < 100 && !strings.Contains(ver, "not available") && !strings.Contains(ver, "█") && !strings.Contains(ver, "╗") {
+						systemInfoCollected = true
+					}
+				}
+			}
+		}
+	}
+
+	// Collect immediately on start
 	systemInfoCollected = nc.doCollect(nasID, d, systemInfoCollected)
 
 	ticker := time.NewTicker(interval)

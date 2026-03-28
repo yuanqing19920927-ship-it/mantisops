@@ -87,15 +87,18 @@ func (s *ServerStore) GetByHostID(hostID string) (*model.Server, error) {
 		COALESCE(cpu_cores,0), COALESCE(cpu_model,''), COALESCE(memory_total,0),
 		COALESCE(disk_total,0), COALESCE(gpu_model,''), COALESCE(gpu_memory,0),
 		COALESCE(boot_time,0), COALESCE(last_seen,0), COALESCE(status,'online'),
-		COALESCE(display_name,''), COALESCE(sort_order,0), group_id
+		COALESCE(display_name,''), COALESCE(sort_order,0), group_id,
+		collect_docker, collect_gpu
 		FROM servers WHERE host_id=?`, hostID)
 	var groupID sql.NullInt64
+	var collectDocker, collectGPU sql.NullBool
 	err := row.Scan(
 		&srv.ID, &srv.HostID, &srv.Hostname, &srv.IPAddresses,
 		&srv.OS, &srv.Kernel, &srv.Arch, &srv.AgentVersion,
 		&srv.CPUCores, &srv.CPUModel, &srv.MemoryTotal, &srv.DiskTotal,
 		&srv.GPUModel, &srv.GPUMemory, &srv.BootTime, &srv.LastSeen,
-		&srv.Status, &srv.DisplayName, &srv.SortOrder, &groupID)
+		&srv.Status, &srv.DisplayName, &srv.SortOrder, &groupID,
+		&collectDocker, &collectGPU)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +106,21 @@ func (s *ServerStore) GetByHostID(hostID string) (*model.Server, error) {
 		gid := int(groupID.Int64)
 		srv.GroupID = &gid
 	}
+	if collectDocker.Valid {
+		v := collectDocker.Bool
+		srv.CollectDocker = &v
+	}
+	if collectGPU.Valid {
+		v := collectGPU.Bool
+		srv.CollectGPU = &v
+	}
 	return &srv, nil
+}
+
+func (s *ServerStore) UpdateConfig(hostID string, collectDocker, collectGPU *bool) error {
+	_, err := s.db.Exec("UPDATE servers SET collect_docker=?, collect_gpu=?, updated_at=CURRENT_TIMESTAMP WHERE host_id=?",
+		collectDocker, collectGPU, hostID)
+	return err
 }
 
 func (s *ServerStore) UpdateDisplayName(hostID, displayName string) error {
@@ -115,6 +132,31 @@ func (s *ServerStore) MarkOffline(timeoutSec int64) error {
 	threshold := time.Now().Unix() - timeoutSec
 	_, err := s.db.Exec("UPDATE servers SET status='offline' WHERE last_seen < ? AND status='online'", threshold)
 	return err
+}
+
+func (s *ServerStore) SetSortOrder(hostID string, sortOrder int) error {
+	_, err := s.db.Exec("UPDATE servers SET sort_order=? WHERE host_id=?", sortOrder, hostID)
+	return err
+}
+
+func (s *ServerStore) BatchUpdateSortOrder(items []struct{ HostID string; SortOrder int }) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare("UPDATE servers SET sort_order=? WHERE host_id=?")
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, item := range items {
+		if _, err := stmt.Exec(item.SortOrder, item.HostID); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *ServerStore) SetGroupID(hostID string, groupID *int) error {

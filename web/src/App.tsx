@@ -21,6 +21,7 @@ import Users from './pages/Users'
 import PermissionTree from './pages/Users/PermissionTree'
 import AIReports from './pages/AIReports'
 import ReportDetail from './pages/AIReports/ReportDetail'
+import SystemAdmin from './pages/SystemAdmin'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/system" element={<SystemAdmin />} />
           <Route path="/ai-reports" element={<AIReports />} />
           <Route path="/ai-reports/:id" element={<ReportDetail />} />
           <Route path="/users" element={<Users />} />

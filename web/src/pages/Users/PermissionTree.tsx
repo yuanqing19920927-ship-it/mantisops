@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getUser, getUserPermissions, setUserPermissions, type PermissionItem } from '../../api/users'
-import { getGroups, getServers, getDatabases, getProbes, type ServerGroup, type ProbeRule, type RDSInfo } from '../../api/client'
-import type { Server } from '../../types'
+import { getGroups, getServers, getDatabases, getProbes, type ProbeRule, type RDSInfo } from '../../api/client'
+import type { Server, ServerGroup } from '../../types'
 
 export default function PermissionTree() {
   const { id } = useParams<{ id: string }>()

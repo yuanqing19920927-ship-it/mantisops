@@ -91,7 +91,7 @@ function NasTypeBadge({ type }: { type: NasDevice['nas_type'] }) {
 
 function RaidStatusBadge({ status }: { status: string }) {
   const lower = status.toLowerCase()
-  const isOk  = lower === 'normal' || lower === 'healthy' || lower === 'ok'
+  const isOk  = lower === 'normal' || lower === 'healthy' || lower === 'ok' || lower === 'active'
   const isDeg = lower.includes('degrad') || lower.includes('rebuild')
   const cls = isOk
     ? 'bg-[rgba(44,160,122,0.1)] text-[#2ca07a]'
@@ -609,8 +609,10 @@ export default function NASDetail() {
     { label: 'IP / 主机',  value: device.host, mono: true },
     { label: 'SSH 端口',   value: String(device.port), mono: true },
     { label: 'SSH 用户',   value: device.ssh_user, mono: true },
-    { label: '型号',       value: sysInfo.model || '—' },
-    { label: '序列号',     value: sysInfo.serial || '—', mono: true },
+    ...(device.nas_type === 'synology' ? [
+      { label: '型号',     value: sysInfo.model || '—' },
+      { label: '序列号',   value: sysInfo.serial || '—', mono: true },
+    ] : []),
     { label: '系统版本',   value: sysInfo.os_version || '—' },
     { label: '采集间隔',   value: `${device.collect_interval} 秒` },
     { label: '最后上报',   value: device.last_seen

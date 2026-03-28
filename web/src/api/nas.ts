@@ -41,7 +41,7 @@ export async function getNasDevices(): Promise<NasDevice[]> {
   return data
 }
 
-export async function createNasDevice(req: { name: string; nas_type: string; host: string; port: number; ssh_user: string; credential_id: number; collect_interval: number }): Promise<{ id: number }> {
+export async function createNasDevice(req: { name: string; nas_type: string; host: string; port: number; ssh_user: string; credential_id?: number; password?: string; collect_interval: number }): Promise<{ id: number }> {
   const { data } = await api.post('/nas-devices', req)
   return data
 }
@@ -54,7 +54,7 @@ export async function deleteNasDevice(id: number): Promise<void> {
   await api.delete(`/nas-devices/${id}`)
 }
 
-export async function testNasConnection(req: { host: string; port: number; ssh_user: string; credential_id: number }): Promise<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean }> {
+export async function testNasConnection(req: { host: string; port: number; ssh_user: string; credential_id?: number; password?: string }): Promise<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean }> {
   const { data } = await api.post('/nas-devices/test', req)
   return data
 }
