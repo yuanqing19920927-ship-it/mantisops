@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { getProbes, getProbeStatus, createProbe, deleteProbe, type ProbeRule } from '../../api/client'
+import { useAuthStore } from '../../stores/authStore'
 import type { ProbeResult } from '../../types'
 
 export default function Probes() {
+  const role = useAuthStore((s) => s.role)
+  const canEdit = role === 'admin' || role === 'operator'
   const [rules, setRules] = useState<ProbeRule[]>([])
   const [results, setResults] = useState<ProbeResult[]>([])
   const [showAdd, setShowAdd] = useState(false)
@@ -85,13 +88,15 @@ export default function Probes() {
           <h1 className="text-[22px] font-semibold text-[#495057]">探测管理</h1>
           <p className="text-sm text-[#878a99] mt-1">端口连通性探测与服务可用性监控</p>
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
-        >
-          <span className="material-symbols-outlined text-[16px]">add</span>
-          添加探测规则
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="inline-flex items-center gap-2 bg-[#2ca07a] hover:bg-[#259b73] text-white px-4 py-2 rounded-[6px] text-sm font-medium transition-colors shadow-sm"
+          >
+            <span className="material-symbols-outlined text-[16px]">add</span>
+            添加探测规则
+          </button>
+        )}
       </div>
 
       {/* Stats Row */}

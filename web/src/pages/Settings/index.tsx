@@ -26,8 +26,10 @@ import {
   testNasConnection,
 } from '../../api/nas'
 import type { NasDevice } from '../../api/nas'
+import { useAuthStore } from '../../stores/authStore'
 
 export default function Settings() {
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
   const { servers, metrics, fetchDashboard } = useServerStore()
   const { platformName, platformSubtitle, logoUrl, saveSettings } = useSettingsStore()
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
@@ -83,8 +85,8 @@ export default function Settings() {
     credential_id: 0,
     collect_interval: 60,
   })
-  const [, setNasAuthMode] = useState<'password' | 'credential'>('password')
-  const [, setNasPassword] = useState('')
+  const [nasAuthMode, setNasAuthMode] = useState<'password' | 'credential'>('password')
+  const [nasPassword, setNasPassword] = useState('')
   const [nasTestResult, setNasTestResult] = useState<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean } | null>(null)
   const [nasTestLoading, setNasTestLoading] = useState(false)
   const [nasSaving, setNasSaving] = useState(false)
@@ -139,11 +141,19 @@ export default function Settings() {
   }
 
   const handleNasTest = async () => {
-    if (!nasForm.host || !nasForm.credential_id) return
+    if (!nasForm.host) return
+    if (nasAuthMode === 'password' && !nasPassword) return
+    if (nasAuthMode === 'credential' && !nasForm.credential_id) return
     setNasTestLoading(true)
     setNasTestResult(null)
     try {
-      const result = await testNasConnection({ host: nasForm.host, port: nasForm.port, ssh_user: nasForm.ssh_user, credential_id: nasForm.credential_id })
+      const payload: Record<string, unknown> = { host: nasForm.host, port: nasForm.port, ssh_user: nasForm.ssh_user }
+      if (nasAuthMode === 'password') {
+        payload.password = nasPassword
+      } else {
+        payload.credential_id = nasForm.credential_id
+      }
+      const result = await testNasConnection(payload as Parameters<typeof testNasConnection>[0])
       setNasTestResult(result)
     } catch (err) {
       setNasTestResult({ ok: false, error: String(err) })
@@ -152,17 +162,25 @@ export default function Settings() {
     }
   }
 
+  const nasFormValid = nasForm.name && nasForm.host && (nasAuthMode === 'password' ? !!nasPassword : nasForm.credential_id > 0)
+
   const handleNasSave = async () => {
-    if (!nasForm.name || !nasForm.host || !nasForm.credential_id) return
+    if (!nasFormValid) return
     setNasSaving(true)
     try {
+      const payload: Record<string, unknown> = { ...nasForm }
+      if (nasAuthMode === 'password') {
+        payload.password = nasPassword
+        delete payload.credential_id
+      }
       if (editingNas) {
-        await updateNasDevice(editingNas.id, nasForm)
+        await updateNasDevice(editingNas.id, payload as Parameters<typeof updateNasDevice>[1])
       } else {
-        await createNasDevice(nasForm)
+        await createNasDevice(payload as Parameters<typeof createNasDevice>[0])
       }
       setShowNasDialog(false)
       fetchNas()
+      fetchCredentials() // 刷新凭据列表（可能自动创建了新凭据）
     } catch (err) {
       console.error('[settings] nas save:', err)
     } finally {
@@ -330,7 +348,7 @@ export default function Settings() {
               </label>
             </div>
           </div>
-          <div className="sm:col-span-2 flex items-center gap-3">
+          {isAdmin && <div className="sm:col-span-2 flex items-center gap-3">
             <button
               onClick={handleSaveSettings}
               disabled={settingsSaving}
@@ -345,7 +363,7 @@ export default function Settings() {
                 已保存
               </span>
             )}
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -865,10 +883,34 @@ export default function Settings() {
                   className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors"
                 />
               </div>
-              {/* SSH 凭据 */}
-              <div>
-                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">SSH 凭据 <span className="text-[#f06548]">*</span></label>
-                {sshCredentials.length > 0 ? (
+              {/* SSH 认证 */}
+              <div className="col-span-2">
+                <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">SSH 认证 <span className="text-[#f06548]">*</span></label>
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => { setNasAuthMode('password'); setNasForm(f => ({ ...f, credential_id: 0 })) }}
+                    className={`text-[12px] px-3 py-1.5 rounded-md transition-colors ${nasAuthMode === 'password' ? 'bg-[#2ca07a] text-white' : 'bg-[#f3f6f9] text-[#878a99] hover:text-[#495057]'}`}
+                  >
+                    输入密码
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setNasAuthMode('credential'); setNasPassword('') }}
+                    className={`text-[12px] px-3 py-1.5 rounded-md transition-colors ${nasAuthMode === 'credential' ? 'bg-[#2ca07a] text-white' : 'bg-[#f3f6f9] text-[#878a99] hover:text-[#495057]'}`}
+                  >
+                    已有凭据
+                  </button>
+                </div>
+                {nasAuthMode === 'password' ? (
+                  <input
+                    type="password"
+                    value={nasPassword}
+                    onChange={(e) => setNasPassword(e.target.value)}
+                    placeholder="SSH 密码"
+                    className="w-full border border-[#e9ebec] rounded-[8px] px-3 py-2 text-sm text-[#495057] placeholder:text-[#adb5bd] focus:outline-none focus:border-[#2ca07a] focus:ring-2 focus:ring-[#2ca07a]/15 transition-colors"
+                  />
+                ) : (
                   <select
                     value={nasForm.credential_id}
                     onChange={(e) => setNasForm((f) => ({ ...f, credential_id: parseInt(e.target.value) }))}
@@ -879,21 +921,13 @@ export default function Settings() {
                       <option key={c.id} value={c.id}>{c.name} ({c.type === 'ssh_key' ? '密钥' : '密码'})</option>
                     ))}
                   </select>
-                ) : (
-                  <div className="border border-[#e9ebec] rounded-[8px] px-3 py-2 text-[12px] text-[#878a99]">
-                    暂无 SSH 凭据
-                  </div>
                 )}
-                <p className="mt-1 text-[11px] text-[#adb5bd]">
-                  只显示 SSH 密码和密钥类型的凭据。
-                  <Link to="/settings" className="text-[#2ca07a] hover:underline ml-1">新建 SSH 凭据</Link>
-                </p>
               </div>
               {/* 测试连接按钮 + 结果 */}
               <div className="col-span-2">
                 <button
                   onClick={handleNasTest}
-                  disabled={nasTestLoading || !nasForm.host || !nasForm.credential_id}
+                  disabled={nasTestLoading || !nasForm.host || (nasAuthMode === 'password' ? !nasPassword : !nasForm.credential_id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] border border-[#ced4da] text-[#495057] hover:border-[#2ca07a] hover:text-[#2ca07a] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {nasTestLoading ? (
@@ -937,7 +971,7 @@ export default function Settings() {
               </button>
               <button
                 onClick={handleNasSave}
-                disabled={nasSaving || !nasForm.name || !nasForm.host || !nasForm.credential_id}
+                disabled={nasSaving || !nasFormValid}
                 className="text-xs px-4 py-2 bg-[#2ca07a] text-white rounded-lg hover:bg-[#248a69] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {nasSaving ? '保存中...' : '保存'}

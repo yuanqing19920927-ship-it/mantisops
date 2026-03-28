@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule,
   getAlertEvents, getAlertStats, ackAlertEvent, getEventNotifications,
@@ -7,6 +7,7 @@ import {
 import { getNasDevices } from '../../api/nas'
 import type { NasDevice } from '../../api/nas'
 import type { AlertRule, AlertEvent, AlertStats, NotificationChannel, AlertNotificationDetail } from '../../types'
+import { useAuthStore } from '../../stores/authStore'
 
 // ── Constants ──────────────────────────────────────────────
 
@@ -124,6 +125,9 @@ function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: () =>
 // ── Component ──────────────────────────────────────────────
 
 export default function Alerts() {
+  const role = useAuthStore((s) => s.role)
+  const canEdit = role === 'admin' || role === 'operator'
+
   // Tab state
   const [tab, setTab] = useState<'events' | 'rules' | 'channels'>('events')
 
@@ -422,7 +426,7 @@ export default function Alerts() {
             {([
               { key: 'events' as const, label: '告警事件', count: stats?.firing ?? null },
               { key: 'rules' as const, label: '告警规则', count: rules.length || null },
-              { key: 'channels' as const, label: '通知渠道', count: channels.length || null },
+              ...(canEdit ? [{ key: 'channels' as const, label: '通知渠道', count: channels.length || null }] : []),
             ]).map((t) => (
               <button
                 key={t.key}
