@@ -14,6 +14,24 @@ func InitSQLite(path string) (*sql.DB, error) {
 	if err := migrate(db); err != nil {
 		return nil, err
 	}
+	// Ensure new columns exist (safe to run repeatedly — silently ignores duplicates)
+	for _, col := range []string{
+		"ALTER TABLE servers ADD COLUMN collect_docker BOOLEAN",
+		"ALTER TABLE servers ADD COLUMN collect_gpu BOOLEAN",
+		"ALTER TABLE probe_rules ADD COLUMN source TEXT DEFAULT 'manual'",
+	} {
+		db.Exec(col)
+	}
+
+	// Seed scan templates (ignore duplicate errors)
+	for _, t := range []struct{ Port int; Name string }{
+		{22, "SSH"}, {80, "HTTP"}, {443, "HTTPS"}, {3306, "MySQL"},
+		{5432, "PostgreSQL"}, {6379, "Redis"}, {8080, "HTTP-Alt"},
+		{8443, "HTTPS-Alt"}, {9090, "管理面板"}, {27017, "MongoDB"},
+	} {
+		db.Exec("INSERT OR IGNORE INTO scan_templates (port, name, sort_order) VALUES (?, ?, ?)", t.Port, t.Name, t.Port)
+	}
+
 	return db, nil
 }
 
@@ -181,6 +199,81 @@ func migrate(db *sql.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_account_instance ON cloud_instances(cloud_account_id, instance_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_instances_host_id ON cloud_instances(host_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_cloud_instances_type ON cloud_instances(instance_type)`,
+
+		// Platform settings (key-value)
+		`CREATE TABLE IF NOT EXISTS settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL DEFAULT ''
+		)`,
+
+		// NAS devices
+		`CREATE TABLE IF NOT EXISTS nas_devices (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			nas_type TEXT NOT NULL,
+			host TEXT NOT NULL,
+			port INTEGER NOT NULL DEFAULT 22,
+			ssh_user TEXT NOT NULL DEFAULT 'root',
+			credential_id INTEGER NOT NULL REFERENCES credentials(id),
+			collect_interval INTEGER DEFAULT 60,
+			status TEXT DEFAULT 'unknown',
+			last_seen INTEGER,
+			system_info TEXT DEFAULT '{}',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_nas_devices_host_port ON nas_devices(host, port)`,
+
+		// Users (multi-user RBAC)
+		`CREATE TABLE IF NOT EXISTS users (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			username        TEXT UNIQUE NOT NULL,
+			password_hash   TEXT NOT NULL,
+			display_name    TEXT DEFAULT '',
+			role            TEXT NOT NULL DEFAULT 'viewer',
+			enabled         BOOLEAN DEFAULT 1,
+			must_change_pwd BOOLEAN DEFAULT 0,
+			token_version   INTEGER DEFAULT 1,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// User resource permissions
+		`CREATE TABLE IF NOT EXISTS user_permissions (
+			id       INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			res_type TEXT NOT NULL,
+			res_id   TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_perm ON user_permissions(user_id, res_type, res_id)`,
+
+		// Scan templates
+		`CREATE TABLE IF NOT EXISTS scan_templates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			port INTEGER NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			enabled BOOLEAN DEFAULT 1,
+			sort_order INTEGER DEFAULT 0
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_templates_port ON scan_templates(port)`,
+
+		// Discovered services (agent auto-discovery)
+		`CREATE TABLE IF NOT EXISTS discovered_services (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			host_id TEXT NOT NULL,
+			pid INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			cmd_line TEXT DEFAULT '',
+			port INTEGER NOT NULL,
+			protocol TEXT DEFAULT 'tcp',
+			bind_addr TEXT DEFAULT '0.0.0.0',
+			status TEXT DEFAULT 'running',
+			asset_id INTEGER DEFAULT NULL,
+			first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_discovered_host ON discovered_services(host_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_discovered_unique ON discovered_services(host_id, port, protocol)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -190,6 +283,9 @@ func migrate(db *sql.DB) error {
 
 	// --- Version-based migrations ---
 	if err := migrateV1(db); err != nil {
+		return err
+	}
+	if err := migrateV2(db); err != nil {
 		return err
 	}
 
@@ -287,6 +383,110 @@ func migrateV1(db *sql.DB) error {
 
 	// Mark migration complete
 	if _, err := tx.Exec(`INSERT INTO schema_version VALUES(1)`); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func migrateV2(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version >= 2 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	ddl := []string{
+		`CREATE TABLE IF NOT EXISTS ai_reports (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			report_type TEXT NOT NULL,
+			title TEXT NOT NULL,
+			summary TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL DEFAULT '',
+			period_start INTEGER NOT NULL,
+			period_end INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			error_message TEXT DEFAULT '',
+			trigger_type TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			token_usage INTEGER DEFAULT 0,
+			generation_time_ms INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_reports_type_period ON ai_reports(report_type, period_start DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_reports_status ON ai_reports(status)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reports_type_period_unique ON ai_reports(report_type, period_start, period_end) WHERE status = 'completed'`,
+
+		`CREATE TABLE IF NOT EXISTS ai_conversations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT NOT NULL DEFAULT '新对话',
+			user TEXT NOT NULL DEFAULT 'admin',
+			provider TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			message_count INTEGER DEFAULT 0,
+			last_message_at INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user, last_message_at DESC)`,
+
+		`CREATE TABLE IF NOT EXISTS ai_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			conversation_id INTEGER NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'done',
+			error_message TEXT DEFAULT '',
+			request_id TEXT DEFAULT '',
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages(conversation_id, created_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_messages_request_id ON ai_messages(conversation_id, request_id) WHERE request_id != ''`,
+
+		`CREATE TABLE IF NOT EXISTS ai_schedules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			report_type TEXT NOT NULL UNIQUE,
+			enabled INTEGER NOT NULL DEFAULT 0,
+			cron_expr TEXT NOT NULL,
+			last_run_at INTEGER,
+			next_run_at INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+	}
+	for _, s := range ddl {
+		if _, err := tx.Exec(s); err != nil {
+			return err
+		}
+	}
+
+	// Insert default schedule records
+	defaults := []struct{ typ, cron string }{
+		{"daily", "0 7 * * *"},
+		{"weekly", "0 8 * * 1"},
+		{"monthly", "0 8 1 * *"},
+		{"quarterly", "0 8 1 1,4,7,10 *"},
+		{"yearly", "0 8 1 1 *"},
+	}
+	for _, d := range defaults {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO ai_schedules (report_type, cron_expr) VALUES (?, ?)`, d.typ, d.cron); err != nil {
+			return err
+		}
+	}
+
+	// Mark migration complete
+	if _, err := tx.Exec(`INSERT INTO schema_version VALUES(2)`); err != nil {
 		return err
 	}
 

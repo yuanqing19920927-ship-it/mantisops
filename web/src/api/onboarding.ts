@@ -115,3 +115,8 @@ export async function getCredentials(): Promise<CredentialSummary[]> {
   const { data } = await api.get('/credentials')
   return data || []
 }
+
+export async function createCredential(name: string, type: string, credData: Record<string, string>): Promise<{ id: number }> {
+  const { data } = await api.post('/credentials', { name, type, data: credData })
+  return data
+}

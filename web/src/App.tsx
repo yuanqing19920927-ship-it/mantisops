@@ -12,11 +12,26 @@ import DatabaseDetail from './pages/DatabaseDetail'
 import Billing from './pages/Billing'
 import Alerts from './pages/Alerts'
 import Containers from './pages/Containers'
+import Logs from './pages/Logs'
+import NAS from './pages/NAS'
+import NASDetail from './pages/NAS/NASDetail'
 import Login from './pages/Login'
+import ChangePassword from './pages/ChangePassword'
+import Users from './pages/Users'
+import PermissionTree from './pages/Users/PermissionTree'
+import AIReports from './pages/AIReports'
+import ReportDetail from './pages/AIReports/ReportDetail'
+import SystemAdmin from './pages/SystemAdmin'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
   if (!token) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function RequireChangePwd({ children }: { children: React.ReactNode }) {
+  const mustChangePwd = useAuthStore((s) => s.mustChangePwd)
+  if (mustChangePwd) return <Navigate to="/change-password" replace />
   return <>{children}</>
 }
 
@@ -25,18 +40,27 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route element={<RequireAuth><MainLayout /></RequireAuth>}>
+        <Route path="/change-password" element={<RequireAuth><ChangePassword /></RequireAuth>} />
+        <Route element={<RequireAuth><RequireChangePwd><MainLayout /></RequireChangePwd></RequireAuth>}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/servers" element={<Servers />} />
           <Route path="/servers/:id" element={<ServerDetail />} />
           <Route path="/databases" element={<Databases />} />
           <Route path="/databases/:id" element={<DatabaseDetail />} />
+          <Route path="/nas" element={<NAS />} />
+          <Route path="/nas/:id" element={<NASDetail />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/containers" element={<Containers />} />
           <Route path="/probes" element={<Probes />} />
           <Route path="/assets" element={<Assets />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/system" element={<SystemAdmin />} />
+          <Route path="/ai-reports" element={<AIReports />} />
+          <Route path="/ai-reports/:id" element={<ReportDetail />} />
+          <Route path="/users" element={<Users />} />
+          <Route path="/users/:id/permissions" element={<PermissionTree />} />
         </Route>
       </Routes>
     </BrowserRouter>

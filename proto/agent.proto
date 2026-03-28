@@ -6,6 +6,7 @@ service AgentService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc ReportMetrics(MetricsPayload) returns (ReportResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc ReportServices(ReportServicesRequest) returns (ReportServicesResponse);
 }
 
 message RegisterRequest {
@@ -111,4 +112,22 @@ message HeartbeatRequest {
 message HeartbeatResponse {
   int64 server_time = 1;
   int32 report_interval = 2;
+}
+
+message ListeningService {
+  int32  pid = 1;
+  string name = 2;
+  string cmd_line = 3;
+  int32  port = 4;
+  string protocol = 5;
+  string bind_addr = 6;
+}
+
+message ReportServicesRequest {
+  string host_id = 1;
+  repeated ListeningService services = 2;
+}
+
+message ReportServicesResponse {
+  bool ok = 1;
 }

@@ -90,7 +90,7 @@ func (m *MetricsCollector) Handle(hostID string, payload *pb.MetricsPayload) {
 		}
 	}
 
-	m.hub.BroadcastJSON(map[string]interface{}{
+	m.hub.BroadcastMetrics(hostID, map[string]interface{}{
 		"type":    "metrics",
 		"host_id": hostID,
 		"data":    payload,

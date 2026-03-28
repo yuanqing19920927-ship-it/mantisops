@@ -15,14 +15,16 @@ import (
 type DatabaseHandler struct {
 	cloudStore *store.CloudStore
 	vm         *store.VictoriaStore
+	permCache  *PermissionCache
 	mu         sync.RWMutex
 	cache      map[string]map[string]float64
 }
 
-func NewDatabaseHandler(cloudStore *store.CloudStore, vm *store.VictoriaStore) *DatabaseHandler {
+func NewDatabaseHandler(cloudStore *store.CloudStore, vm *store.VictoriaStore, pc *PermissionCache) *DatabaseHandler {
 	h := &DatabaseHandler{
 		cloudStore: cloudStore,
 		vm:         vm,
+		permCache:  pc,
 		cache:      make(map[string]map[string]float64),
 	}
 	// 后台每 30 秒刷新 RDS 指标缓存
@@ -90,6 +92,16 @@ func (h *DatabaseHandler) List(c *gin.Context) {
 		}
 		result = append(result, info)
 	}
+	// Resource-level permission filtering
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := result[:0]
+		for _, d := range result {
+			if ps.CanSeeDatabase(d.HostID) {
+				filtered = append(filtered, d)
+			}
+		}
+		result = filtered
+	}
 	if result == nil {
 		result = []rdsInfo{}
 	}
@@ -116,6 +128,10 @@ func (h *DatabaseHandler) Get(c *gin.Context) {
 	}
 	if found == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "database not found"})
+		return
+	}
+	if ps := GetPermissionSet(c, h.permCache); ps != nil && !ps.CanSeeDatabase(found.HostID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 		return
 	}
 

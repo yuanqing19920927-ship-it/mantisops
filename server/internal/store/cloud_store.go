@@ -167,6 +167,28 @@ func (s *CloudStore) ListInstances(accountID int) ([]CloudInstance, error) {
 	return instances, rows.Err()
 }
 
+// ListAllInstances returns all cloud instances across all accounts.
+func (s *CloudStore) ListAllInstances() ([]CloudInstance, error) {
+	rows, err := s.db.Query(`SELECT id, cloud_account_id, instance_type, instance_id, host_id,
+		COALESCE(instance_name,''), COALESCE(region_id,''), COALESCE(spec,''),
+		COALESCE(engine,''), COALESCE(endpoint,''), monitored, COALESCE(extra,'{}'),
+		created_at, updated_at
+		FROM cloud_instances ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var instances []CloudInstance
+	for rows.Next() {
+		inst, err := scanInstanceRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, *inst)
+	}
+	return instances, rows.Err()
+}
+
 func (s *CloudStore) GetInstance(id int) (*CloudInstance, error) {
 	row := s.db.QueryRow(`SELECT id, cloud_account_id, instance_type, instance_id, host_id,
 		COALESCE(instance_name,''), COALESCE(region_id,''), COALESCE(spec,''),

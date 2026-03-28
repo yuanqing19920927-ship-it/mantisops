@@ -36,12 +36,13 @@ func deriveHostPort(rule *model.ProbeRule) {
 }
 
 type ProbeHandler struct {
-	store  *store.ProbeStore
-	prober *probe.Prober
+	store     *store.ProbeStore
+	prober    *probe.Prober
+	permCache *PermissionCache
 }
 
-func NewProbeHandler(s *store.ProbeStore, p *probe.Prober) *ProbeHandler {
-	return &ProbeHandler{store: s, prober: p}
+func NewProbeHandler(s *store.ProbeStore, p *probe.Prober, pc *PermissionCache) *ProbeHandler {
+	return &ProbeHandler{store: s, prober: p, permCache: pc}
 }
 
 func (h *ProbeHandler) List(c *gin.Context) {
@@ -49,6 +50,15 @@ func (h *ProbeHandler) List(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := rules[:0]
+		for _, p := range rules {
+			if ps.CanSeeProbe(strconv.Itoa(p.ID)) {
+				filtered = append(filtered, p)
+			}
+		}
+		rules = filtered
 	}
 	c.JSON(http.StatusOK, rules)
 }
@@ -108,5 +118,14 @@ func (h *ProbeHandler) Delete(c *gin.Context) {
 
 func (h *ProbeHandler) Status(c *gin.Context) {
 	results := h.prober.GetAllResults()
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := results[:0]
+		for _, r := range results {
+			if ps.CanSeeProbe(strconv.Itoa(r.RuleID)) {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
 	c.JSON(http.StatusOK, results)
 }

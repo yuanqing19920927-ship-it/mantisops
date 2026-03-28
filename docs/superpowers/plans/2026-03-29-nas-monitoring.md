@@ -67,6 +67,7 @@
     nas_type TEXT NOT NULL,
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 22,
+    ssh_user TEXT NOT NULL DEFAULT 'root',
     credential_id INTEGER NOT NULL REFERENCES credentials(id),
     collect_interval INTEGER DEFAULT 60,
     status TEXT DEFAULT 'unknown',
@@ -114,6 +115,7 @@ type NasDevice struct {
 	NasType         string     `json:"nas_type"`
 	Host            string     `json:"host"`
 	Port            int        `json:"port"`
+	SSHUser         string     `json:"ssh_user"`
 	CredentialID    int        `json:"credential_id"`
 	CollectInterval int        `json:"collect_interval"`
 	Status          string     `json:"status"`
@@ -136,7 +138,7 @@ func NewNasStore(db *sql.DB) *NasStore {
 
 ```go
 func (s *NasStore) List() ([]NasDevice, error) {
-	rows, err := s.db.Query(`SELECT id, name, nas_type, host, port, credential_id,
+	rows, err := s.db.Query(`SELECT id, name, nas_type, host, port, ssh_user, credential_id,
 		collect_interval, status, last_seen, system_info, created_at, updated_at
 		FROM nas_devices ORDER BY id`)
 	if err != nil {
@@ -159,18 +161,21 @@ func (s *NasStore) List() ([]NasDevice, error) {
 
 ```go
 func (s *NasStore) Get(id int) (*NasDevice, error) {
-	row := s.db.QueryRow(`SELECT id, name, nas_type, host, port, credential_id,
+	row := s.db.QueryRow(`SELECT id, name, nas_type, host, port, ssh_user, credential_id,
 		collect_interval, status, last_seen, system_info, created_at, updated_at
 		FROM nas_devices WHERE id=?`, id)
 	return scanNasDevice(row)
 }
 
-func (s *NasStore) Create(name, nasType, host string, port, credentialID, collectInterval int) (int, error) {
+func (s *NasStore) Create(name, nasType, host string, port int, sshUser string, credentialID, collectInterval int) (int, error) {
 	if collectInterval < 30 {
 		collectInterval = 30
 	}
-	res, err := s.db.Exec(`INSERT INTO nas_devices (name, nas_type, host, port, credential_id, collect_interval)
-		VALUES (?, ?, ?, ?, ?, ?)`, name, nasType, host, port, credentialID, collectInterval)
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	res, err := s.db.Exec(`INSERT INTO nas_devices (name, nas_type, host, port, ssh_user, credential_id, collect_interval)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, name, nasType, host, port, sshUser, credentialID, collectInterval)
 	if err != nil {
 		return 0, err
 	}
@@ -178,13 +183,16 @@ func (s *NasStore) Create(name, nasType, host string, port, credentialID, collec
 	return int(id), err
 }
 
-func (s *NasStore) Update(id int, name, nasType, host string, port, credentialID, collectInterval int) error {
+func (s *NasStore) Update(id int, name, nasType, host string, port int, sshUser string, credentialID, collectInterval int) error {
 	if collectInterval < 30 {
 		collectInterval = 30
 	}
-	_, err := s.db.Exec(`UPDATE nas_devices SET name=?, nas_type=?, host=?, port=?, credential_id=?,
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	_, err := s.db.Exec(`UPDATE nas_devices SET name=?, nas_type=?, host=?, port=?, ssh_user=?, credential_id=?,
 		collect_interval=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		name, nasType, host, port, credentialID, collectInterval, id)
+		name, nasType, host, port, sshUser, credentialID, collectInterval, id)
 	return err
 }
 
@@ -193,9 +201,16 @@ func (s *NasStore) Delete(id int) error {
 	return err
 }
 
+// UpdateStatus 更新状态，仅 online/degraded 时刷新 last_seen
 func (s *NasStore) UpdateStatus(id int, status string) error {
-	_, err := s.db.Exec(`UPDATE nas_devices SET status=?, last_seen=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		status, time.Now().Unix(), id)
+	if status == "online" || status == "degraded" {
+		_, err := s.db.Exec(`UPDATE nas_devices SET status=?, last_seen=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+			status, time.Now().Unix(), id)
+		return err
+	}
+	// offline/unknown 只更新 status，不刷新 last_seen
+	_, err := s.db.Exec(`UPDATE nas_devices SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		status, id)
 	return err
 }
 
@@ -216,7 +231,7 @@ type rowScanner interface {
 func scanNasDevice(row rowScanner) (*NasDevice, error) {
 	var d NasDevice
 	var lastSeen sql.NullInt64
-	err := row.Scan(&d.ID, &d.Name, &d.NasType, &d.Host, &d.Port, &d.CredentialID,
+	err := row.Scan(&d.ID, &d.Name, &d.NasType, &d.Host, &d.Port, &d.SSHUser, &d.CredentialID,
 		&d.CollectInterval, &d.Status, &lastSeen, &d.SystemInfo, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -381,6 +396,7 @@ type NasRawCounters struct {
 type NasDeviceHealth struct {
 	FailureCount int
 	LastError    string
+	LastStatus   string // 上次广播的状态，用于检测变更
 }
 ```
 
@@ -396,18 +412,31 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// sshConnect 建立 SSH 连接
-func sshConnect(host string, port int, username, password, privateKey string) (*ssh.Client, error) {
+// SSHConnect 建立 SSH 连接
+// credType: "ssh_password" 或 "ssh_key"
+// password: ssh_password 类型的密码
+// privateKey: ssh_key 类型的私钥 PEM
+// passphrase: ssh_key 类型的私钥口令（可为空）
+func SSHConnect(host string, port int, username, credType, password, privateKey, passphrase string) (*ssh.Client, error) {
 	var authMethods []ssh.AuthMethod
-	if privateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(privateKey))
+
+	switch credType {
+	case "ssh_key":
+		var signer ssh.Signer
+		var err error
+		if passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKey), []byte(passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(privateKey))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("parse private key: %w", err)
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	}
-	if password != "" {
+	case "ssh_password":
 		authMethods = append(authMethods, ssh.Password(password))
+	default:
+		return nil, fmt.Errorf("unsupported credential type: %s", credType)
 	}
 
 	config := &ssh.ClientConfig{
@@ -1176,8 +1205,8 @@ func (c *NasCollector) doCollect(nasID int64, d store.NasDevice, systemInfoColle
 		return
 	}
 
-	// SSH 连接
-	client, err := sshConnect(d.Host, d.Port, cred.Data["username"], cred.Data["password"], cred.Data["private_key"])
+	// SSH 连接（用户名从 nas_devices.ssh_user 取，不从 credential 取）
+	client, err := SSHConnect(d.Host, d.Port, d.SSHUser, cred.Type, cred.Data["password"], cred.Data["private_key"], cred.Data["passphrase"])
 	if err != nil {
 		errType := "connect_failed"
 		if isAuthError(err) {
@@ -1232,12 +1261,32 @@ func (c *NasCollector) doCollect(nasID int64, d store.NasDevice, systemInfoColle
 	// 写 VictoriaMetrics
 	c.writeToVM(nasID, d.Name, snap)
 
-	// WebSocket 广播
+	// WebSocket 广播指标
 	c.hub.BroadcastJSON(map[string]interface{}{
 		"type":   "nas_metrics",
 		"nas_id": nasID,
 		"data":   snap,
 	})
+
+	// 广播状态变更（与上次状态不同时才发送）
+	c.mu.RLock()
+	prevStatus := ""
+	if h, ok := c.health[nasID]; ok {
+		prevStatus = h.LastStatus
+	}
+	c.mu.RUnlock()
+	if status != prevStatus {
+		c.hub.BroadcastJSON(map[string]interface{}{
+			"type":   "nas_status",
+			"nas_id": nasID,
+			"status": status,
+		})
+		c.mu.Lock()
+		if c.health[nasID] != nil {
+			c.health[nasID].LastStatus = status
+		}
+		c.mu.Unlock()
+	}
 }
 
 func (c *NasCollector) recordFailure(nasID int64, errMsg string) {
@@ -1251,8 +1300,18 @@ func (c *NasCollector) recordFailure(nasID int64, errMsg string) {
 	h.LastError = errMsg
 	c.mu.Unlock()
 
-	status := "offline"
-	c.nasStore.UpdateStatus(int(nasID), status)
+	c.nasStore.UpdateStatus(int(nasID), "offline")
+
+	// 广播状态变更
+	if h.LastStatus != "offline" {
+		c.hub.BroadcastJSON(map[string]interface{}{
+			"type":   "nas_status",
+			"nas_id": nasID,
+			"status": "offline",
+		})
+		h.LastStatus = "offline"
+	}
+
 	log.Printf("[nas] device %d collection failed (%d): %s", nasID, h.FailureCount, errMsg)
 }
 
@@ -1418,6 +1477,7 @@ func (h *NasHandler) Create(c *gin.Context) {
 		NasType         string `json:"nas_type" binding:"required"`
 		Host            string `json:"host" binding:"required"`
 		Port            int    `json:"port"`
+		SSHUser         string `json:"ssh_user"`
 		CredentialID    int    `json:"credential_id" binding:"required"`
 		CollectInterval int    `json:"collect_interval"`
 	}
@@ -1447,7 +1507,7 @@ func (h *NasHandler) Create(c *gin.Context) {
 		req.CollectInterval = 60
 	}
 
-	id, err := h.nasStore.Create(req.Name, req.NasType, req.Host, req.Port, req.CredentialID, req.CollectInterval)
+	id, err := h.nasStore.Create(req.Name, req.NasType, req.Host, req.Port, req.SSHUser, req.CredentialID, req.CollectInterval)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1473,6 +1533,7 @@ func (h *NasHandler) Update(c *gin.Context) {
 		NasType         string `json:"nas_type" binding:"required"`
 		Host            string `json:"host" binding:"required"`
 		Port            int    `json:"port"`
+		SSHUser         string `json:"ssh_user"`
 		CredentialID    int    `json:"credential_id" binding:"required"`
 		CollectInterval int    `json:"collect_interval"`
 	}
@@ -1487,7 +1548,7 @@ func (h *NasHandler) Update(c *gin.Context) {
 		req.CollectInterval = 60
 	}
 
-	if err := h.nasStore.Update(id, req.Name, req.NasType, req.Host, req.Port, req.CredentialID, req.CollectInterval); err != nil {
+	if err := h.nasStore.Update(id, req.Name, req.NasType, req.Host, req.Port, req.SSHUser, req.CredentialID, req.CollectInterval); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -1521,6 +1582,7 @@ func (h *NasHandler) TestConnection(c *gin.Context) {
 	var req struct {
 		Host         string `json:"host" binding:"required"`
 		Port         int    `json:"port"`
+		SSHUser      string `json:"ssh_user"`
 		CredentialID int    `json:"credential_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1537,7 +1599,11 @@ func (h *NasHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	client, err := collector.SSHConnect(req.Host, req.Port, cred.Data["username"], cred.Data["password"], cred.Data["private_key"])
+	sshUser := req.SSHUser
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	client, err := collector.SSHConnect(req.Host, req.Port, sshUser, cred.Type, cred.Data["password"], cred.Data["private_key"], cred.Data["passphrase"])
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
 		return
@@ -1584,13 +1650,7 @@ func (h *NasHandler) GetMetrics(c *gin.Context) {
 }
 ```
 
-注意：`SSHConnect` 和 `SSHExec` 需要从 `nas_ssh.go` 中导出（大写首字母）。将 `sshConnect` 改为 `SSHConnect`，`sshExec` 改为 `SSHExec`。
-
-- [ ] **Step 2: 回到 nas_ssh.go，将 sshConnect 和 sshExec 改为导出函数**
-
-将 `func sshConnect(...)` 改为 `func SSHConnect(...)`
-将 `func sshExec(...)` 改为 `func SSHExec(...)`
-同时更新 `collectNasMetrics` 中的调用。
+注意：`SSHConnect` 和 `SSHExec` 已在 `nas_ssh.go` 中以大写命名导出。`sshExec` 同样需要改名为 `SSHExec`，并更新 `collectNasMetrics` 中的所有调用。
 
 - [ ] **Step 3: 验证编译**
 
@@ -1768,7 +1828,24 @@ func (a *Alerter) evaluateNas(rules []model.AlertRule) {
             continue
         }
 
+        // 按 target_id 过滤：如果规则指定了 target（如 "nas:1"），只评估该设备
+        targetNasIDs := make(map[int64]bool)
+        if rule.TargetID != "" {
+            // 格式 "nas:1"
+            parts := strings.SplitN(rule.TargetID, ":", 2)
+            if len(parts) == 2 {
+                id, _ := strconv.ParseInt(parts[1], 10, 64)
+                if id > 0 {
+                    targetNasIDs[id] = true
+                }
+            }
+        }
+
         for nasID, snap := range allMetrics {
+            // 如果规则指定了 target，跳过不匹配的设备
+            if len(targetNasIDs) > 0 && !targetNasIDs[nasID] {
+                continue
+            }
             // 时间戳去重：如果与上次评估的快照相同则跳过
             stateKey := fmt.Sprintf("%d:nas:%d", rule.ID, nasID)
             a.mu.RLock()
@@ -1797,9 +1874,18 @@ func (a *Alerter) evaluateNas(rules []model.AlertRule) {
 }
 
 func (a *Alerter) evaluateNasOffline(rule model.AlertRule, allMetrics map[int64]*collector.NasMetricsSnapshot) {
-    // 获取所有 NAS 设备 ID（包括离线的），通过 NasProvider.ListDeviceIDs()
     allIDs := a.nas.ListDeviceIDs()
     for _, nasID := range allIDs {
+        // 按 target_id 过滤
+        if rule.TargetID != "" {
+            parts := strings.SplitN(rule.TargetID, ":", 2)
+            if len(parts) == 2 {
+                tid, _ := strconv.ParseInt(parts[1], 10, 64)
+                if tid > 0 && tid != nasID {
+                    continue
+                }
+            }
+        }
         targetID := fmt.Sprintf("nas:%d", nasID)
         stateKey := fmt.Sprintf("%d:%s", rule.ID, targetID)
 
@@ -1977,6 +2063,7 @@ export interface NasDevice {
   nas_type: 'synology' | 'fnos'
   host: string
   port: number
+  ssh_user: string
   credential_id: number
   collect_interval: number
   status: 'online' | 'offline' | 'degraded' | 'unknown'
@@ -2011,12 +2098,12 @@ export async function getNasDevices(): Promise<NasDevice[]> {
   return data
 }
 
-export async function createNasDevice(req: { name: string; nas_type: string; host: string; port: number; credential_id: number; collect_interval: number }): Promise<{ id: number }> {
+export async function createNasDevice(req: { name: string; nas_type: string; host: string; port: number; ssh_user: string; credential_id: number; collect_interval: number }): Promise<{ id: number }> {
   const { data } = await api.post('/nas-devices', req)
   return data
 }
 
-export async function updateNasDevice(id: number, req: { name: string; nas_type: string; host: string; port: number; credential_id: number; collect_interval: number }): Promise<void> {
+export async function updateNasDevice(id: number, req: { name: string; nas_type: string; host: string; port: number; ssh_user: string; credential_id: number; collect_interval: number }): Promise<void> {
   await api.put(`/nas-devices/${id}`, req)
 }
 
@@ -2024,7 +2111,7 @@ export async function deleteNasDevice(id: number): Promise<void> {
   await api.delete(`/nas-devices/${id}`)
 }
 
-export async function testNasConnection(req: { host: string; port: number; credential_id: number }): Promise<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean }> {
+export async function testNasConnection(req: { host: string; port: number; ssh_user: string; credential_id: number }): Promise<{ ok: boolean; error?: string; detected_type?: string; smart_available?: boolean }> {
   const { data } = await api.post('/nas-devices/test', req)
   return data
 }
@@ -2051,7 +2138,7 @@ git commit -m "feat(web): add NAS API client"
 
 ```typescript
 import { create } from 'zustand'
-import { getNasDevices, type NasDevice, type NasMetrics } from '../api/nas'
+import { getNasDevices, getNasMetrics, type NasDevice, type NasMetrics } from '../api/nas'
 
 interface NasState {
   devices: NasDevice[]
@@ -2071,6 +2158,17 @@ export const useNasStore = create<NasState>((set) => ({
     try {
       const devices = await getNasDevices()
       set({ devices: devices || [] })
+      // 首屏：批量加载所有设备的缓存指标
+      const metricsMap: Record<number, NasMetrics> = {}
+      await Promise.all(
+        (devices || []).map(async (d) => {
+          try {
+            const m = await getNasMetrics(d.id)
+            if (m && m.timestamp) metricsMap[d.id] = m
+          } catch { /* 设备可能尚无指标 */ }
+        })
+      )
+      set({ metrics: metricsMap })
     } finally {
       set({ loading: false })
     }
@@ -2200,7 +2298,34 @@ git commit -m "feat(web): add NAS sidebar menu, routes, and placeholder pages"
 - NAS 设备卡片列表（每张卡片含：名称、类型、IP、状态、CPU/内存进度条、存储池摘要、硬盘温度、网络吞吐、UPS 状态）
 - 监听 `nas_metrics` 和 `nas_status` CustomEvent 实时更新 store
 
-代码较长，实现时参考 spec 文档 5.3 节的 wireframe 和现有 `pages/Servers/` 的组件模式。使用 `useNasStore` 的 `fetchDevices` 加载初始数据，`updateMetrics` 处理 WebSocket 更新。
+**首屏指标加载**：WebSocket 广播间隔为 60 秒，首屏会空一段时间。解决方案：页面 mount 时，对每个设备调用 `getNasMetrics(id)` 获取缓存的最新快照，填充 store。后续由 WebSocket 事件覆盖更新。参考现有 Dashboard 页面的 `fetchDashboard()` 模式（REST 加载初始数据 + WebSocket 实时覆盖）。
+
+在 `nasStore.ts` 的 `fetchDevices` 方法中，加载设备列表后批量拉取指标：
+
+```typescript
+fetchDevices: async () => {
+    set({ loading: true })
+    try {
+        const devices = await getNasDevices()
+        set({ devices: devices || [] })
+        // 首屏：批量加载所有设备的缓存指标
+        const metricsMap: Record<number, NasMetrics> = {}
+        await Promise.all(
+            (devices || []).map(async (d) => {
+                try {
+                    const m = await getNasMetrics(d.id)
+                    if (m && m.timestamp) metricsMap[d.id] = m
+                } catch { /* 设备可能尚无指标，忽略 */ }
+            })
+        )
+        set({ metrics: metricsMap })
+    } finally {
+        set({ loading: false })
+    }
+},
+```
+
+代码较长，实现时参考 spec 文档 5.3 节的 wireframe 和现有 `pages/Servers/` 的组件模式。
 
 - [ ] **Step 2: 验证前端编译 + 视觉检查**
 

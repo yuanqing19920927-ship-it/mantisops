@@ -9,7 +9,8 @@ import (
 )
 
 type ServerHandler struct {
-	store *store.ServerStore
+	store     *store.ServerStore
+	permCache *PermissionCache
 }
 
 func (h *ServerHandler) List(c *gin.Context) {
@@ -26,6 +27,17 @@ func (h *ServerHandler) List(c *gin.Context) {
 		} else {
 			servers[i].Source = "agent"
 		}
+	}
+
+	// Resource-level permission filtering
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := servers[:0]
+		for _, s := range servers {
+			if ps.CanSeeServer(s.HostID) {
+				filtered = append(filtered, s)
+			}
+		}
+		servers = filtered
 	}
 
 	c.JSON(http.StatusOK, servers)
@@ -71,6 +83,10 @@ func (h *ServerHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
 	}
+	if ps := GetPermissionSet(c, h.permCache); ps != nil && !ps.CanSeeServer(srv.HostID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+		return
+	}
 	c.JSON(http.StatusOK, srv)
 }
 
@@ -84,6 +100,23 @@ func (h *ServerHandler) UpdateDisplayName(c *gin.Context) {
 		return
 	}
 	if err := h.store.UpdateDisplayName(id, req.DisplayName); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *ServerHandler) UpdateConfig(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		CollectDocker *bool `json:"collect_docker"`
+		CollectGPU    *bool `json:"collect_gpu"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.store.UpdateConfig(id, req.CollectDocker, req.CollectGPU); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -12,12 +12,13 @@ import (
 )
 
 type AlertHandler struct {
-	store   *store.AlertStore
-	alerter *alert.Alerter
+	store     *store.AlertStore
+	alerter   *alert.Alerter
+	permCache *PermissionCache
 }
 
-func NewAlertHandler(s *store.AlertStore, a *alert.Alerter) *AlertHandler {
-	return &AlertHandler{store: s, alerter: a}
+func NewAlertHandler(s *store.AlertStore, a *alert.Alerter, pc *PermissionCache) *AlertHandler {
+	return &AlertHandler{store: s, alerter: a, permCache: pc}
 }
 
 // ---------- Rules CRUD ----------
@@ -27,6 +28,16 @@ func (h *AlertHandler) ListRules(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := rules[:0]
+		for _, r := range rules {
+			// Global rules (empty target_id) visible to all
+			if r.TargetID == "" || ps.CanSeeAlertTarget(r.Type, r.TargetID) {
+				filtered = append(filtered, r)
+			}
+		}
+		rules = filtered
 	}
 	c.JSON(http.StatusOK, rules)
 }
@@ -150,11 +161,27 @@ func (h *AlertHandler) ListEvents(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		filtered := events[:0]
+		for _, e := range events {
+			if ps.CanSeeEvent(e.TargetID) {
+				filtered = append(filtered, e)
+			}
+		}
+		events = filtered
+	}
 	c.JSON(http.StatusOK, events)
 }
 
 func (h *AlertHandler) GetStats(c *gin.Context) {
-	stats, err := h.store.GetStats()
+	ps := GetPermissionSet(c, h.permCache)
+	var stats *model.AlertStats
+	var err error
+	if ps == nil {
+		stats, err = h.store.GetStats()
+	} else {
+		stats, err = h.store.GetStatsFiltered(ps.AllVisibleTargetIDs())
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -167,6 +194,19 @@ func (h *AlertHandler) AckEvent(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
+	}
+
+	// Permission check: verify user can see this event's target
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		event, err := h.store.GetEvent(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+			return
+		}
+		if !ps.CanSeeEvent(event.TargetID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
 	}
 
 	username, _ := c.Get("username")
@@ -184,6 +224,19 @@ func (h *AlertHandler) GetEventNotifications(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
+	}
+
+	// Permission check: verify user can see this event's target
+	if ps := GetPermissionSet(c, h.permCache); ps != nil {
+		event, err := h.store.GetEvent(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+			return
+		}
+		if !ps.CanSeeEvent(event.TargetID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
 	}
 
 	notifications, err := h.store.GetEventNotifications(id)

@@ -6,16 +6,20 @@ import { ProgressBar } from '../../components/ProgressBar'
 import { getProbeStatus } from '../../api/client'
 import type { ProbeResult } from '../../types'
 import { formatBytesPS } from '../../utils/format'
+import { latestReport } from '../../api/ai'
+import type { AIReport } from '../../api/ai'
 
 export default function Dashboard() {
   const { servers, metrics, groups, loading, fetchDashboard } = useServerStore()
   const [probes, setProbes] = useState<ProbeResult[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [aiReport, setAiReport] = useState<AIReport | null>(null)
   const location = useLocation()
 
   const refreshAll = useCallback(() => {
     fetchDashboard()
     getProbeStatus().then(setProbes).catch(() => {})
+    latestReport().then(setAiReport).catch(() => setAiReport(null))
   }, [fetchDashboard])
 
   // 每次进入页面（路由切换）或页面重新可见时刷新
@@ -49,8 +53,8 @@ export default function Dashboard() {
     ? (serverMetrics.reduce((s, m) => s + m.cpuPercent, 0) / serverMetrics.length).toFixed(1)
     : '0'
 
-  // Top 3 by CPU
-  const topByCpu = [...serverMetrics].sort((a, b) => b.cpuPercent - a.cpuPercent).slice(0, 3)
+  // Top 5 by CPU
+  const topByCpu = [...serverMetrics].sort((a, b) => b.cpuPercent - a.cpuPercent).slice(0, 5)
 
   // Group servers
   const grouped = useMemo(() => {
@@ -100,6 +104,40 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* AI Analysis Summary — full width */}
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-[var(--color-primary)]/10 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[var(--color-primary)] text-lg">analytics</span>
+            </div>
+            {aiReport ? (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-semibold text-on-surface">{aiReport.title}</h4>
+                  <span className="text-[11px] text-on-surface-variant/60">
+                    {new Date(aiReport.created_at).toLocaleDateString('zh-CN')}
+                  </span>
+                </div>
+                <p className="text-xs text-on-surface-variant leading-relaxed mt-1 line-clamp-1">{aiReport.summary}</p>
+              </div>
+            ) : (
+              <div>
+                <h4 className="text-sm font-semibold text-on-surface">AI 分析</h4>
+                <p className="text-xs text-on-surface-variant mt-0.5">暂无报告，在设置中配置 AI 提供商后即可生成</p>
+              </div>
+            )}
+          </div>
+          <Link
+            to={aiReport ? `/ai-reports/${aiReport.id}` : '/ai-reports'}
+            className="flex-shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:text-primary-container transition-colors ml-4"
+          >
+            {aiReport ? '查看报告' : '全部报告'}
+            <span className="material-symbols-outlined text-xs">arrow_forward</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Top Stats Row — 4 cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
 
@@ -337,83 +375,10 @@ export default function Dashboard() {
         {/* Right Column */}
         <div className="xl:col-span-5 flex flex-col gap-6 xl:h-[calc(100vh-280px)]">
 
-          {/* Port Probes Summary */}
-          <div className="glass-card flex-1 min-h-0 flex flex-col">
-            <div className="flex items-center justify-between px-5 pt-5 pb-4 flex-shrink-0">
-              <h4 className="text-base font-semibold text-on-surface">端口监控摘要</h4>
-              <Link
-                to="/probes"
-                className="text-xs px-3 py-1 rounded-md bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest transition-colors font-medium"
-              >
-                View All
-              </Link>
-            </div>
-
-            {probes.length > 0 ? (
-              <div className="space-y-2 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
-                {probes.map((p) => {
-                  const isUp = p.status === 'up'
-                  return (
-                    <div
-                      key={p.rule_id}
-                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-colors ${
-                        isUp
-                          ? 'bg-surface-container-low border-outline-variant/50'
-                          : 'bg-error/5 border-error/20'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {/* Glow dot */}
-                        <span
-                          className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                            isUp
-                              ? 'bg-tertiary shadow-[0_0_8px_rgba(10,179,156,0.6)]'
-                              : 'bg-error shadow-[0_0_8px_rgba(240,101,72,0.6)]'
-                          }`}
-                          aria-hidden="true"
-                        />
-                        <span
-                          className={`text-sm font-medium truncate ${
-                            isUp ? 'text-on-surface' : 'text-error'
-                          }`}
-                        >
-                          {p.name}
-                        </span>
-                      </div>
-                      <div className="flex-shrink-0 text-right ml-3">
-                        <span
-                          className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded ${
-                            isUp
-                              ? 'bg-surface-container-high text-on-surface-variant'
-                              : 'bg-error text-white'
-                          }`}
-                        >
-                          {p.host}:{p.port}
-                        </span>
-                        <div
-                          className={`text-[11px] mt-1 ${
-                            isUp ? 'text-on-surface-variant' : 'text-error'
-                          }`}
-                        >
-                          {isUp ? `${(p.latency_ms ?? 0).toFixed(1)}ms` : '连接失败'}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="text-sm py-8 text-center text-on-surface-variant px-5 pb-5">
-                暂无探测规则，
-                <Link to="/probes" className="text-primary hover:underline">去添加</Link>
-              </div>
-            )}
-          </div>
-
-          {/* Top 3 CPU Resource Ranking */}
+          {/* Top 5 CPU Resource Ranking */}
           <div className="glass-card flex-1 min-h-0 flex flex-col">
             <div className="px-5 pt-5 pb-4 flex-shrink-0">
-              <h4 className="text-base font-semibold text-on-surface">资源使用排行 (Top 3 CPU)</h4>
+              <h4 className="text-base font-semibold text-on-surface">资源使用排行 (Top 5 CPU)</h4>
             </div>
 
             {topByCpu.length > 0 ? (

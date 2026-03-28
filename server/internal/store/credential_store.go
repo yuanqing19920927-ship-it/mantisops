@@ -83,7 +83,8 @@ func (s *CredentialStore) List() ([]CredentialSummary, error) {
 	rows, err := s.db.Query(`
 		SELECT c.id, c.name, c.type, c.created_at,
 			(SELECT COUNT(*) FROM managed_servers WHERE credential_id = c.id) +
-			(SELECT COUNT(*) FROM cloud_accounts WHERE credential_id = c.id) AS used_by
+			(SELECT COUNT(*) FROM cloud_accounts WHERE credential_id = c.id) +
+			(SELECT COUNT(*) FROM nas_devices WHERE credential_id = c.id) AS used_by
 		FROM credentials c ORDER BY c.id
 	`)
 	if err != nil {
@@ -121,8 +122,9 @@ func (s *CredentialStore) Delete(id int) error {
 	var refCount int
 	if err := s.db.QueryRow(`
 		SELECT (SELECT COUNT(*) FROM managed_servers WHERE credential_id = ?) +
-		       (SELECT COUNT(*) FROM cloud_accounts WHERE credential_id = ?)
-	`, id, id).Scan(&refCount); err != nil {
+		       (SELECT COUNT(*) FROM cloud_accounts WHERE credential_id = ?) +
+		       (SELECT COUNT(*) FROM nas_devices WHERE credential_id = ?)
+	`, id, id, id).Scan(&refCount); err != nil {
 		return fmt.Errorf("check credential references: %w", err)
 	}
 	if refCount > 0 {

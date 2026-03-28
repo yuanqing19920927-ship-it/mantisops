@@ -20,9 +20,10 @@ import (
 )
 
 type BillingHandler struct {
-	cloudStore *store.CloudStore
-	credStore  *store.CredentialStore
+	cloudStore  *store.CloudStore
+	credStore   *store.CredentialStore
 	fallbackCfg config.AliyunConfig // 向后兼容：当数据库无账号时使用
+	permCache   *PermissionCache    // TODO: add instance_id → host_id filtering (requires CloudStore changes)
 
 	mu    sync.RWMutex
 	cache []BillingItem
@@ -51,11 +52,12 @@ type billingAccount struct {
 	regions  []string
 }
 
-func NewBillingHandler(cloudStore *store.CloudStore, credStore *store.CredentialStore, fallbackCfg config.AliyunConfig) *BillingHandler {
+func NewBillingHandler(cloudStore *store.CloudStore, credStore *store.CredentialStore, fallbackCfg config.AliyunConfig, pc *PermissionCache) *BillingHandler {
 	h := &BillingHandler{
 		cloudStore:  cloudStore,
 		credStore:   credStore,
 		fallbackCfg: fallbackCfg,
+		permCache:   pc,
 	}
 
 	// 启动时后台预加载，不阻塞主线程
@@ -84,7 +86,7 @@ func (h *BillingHandler) refresh() {
 	log.Printf("[billing] refreshed: %d items", len(items))
 }
 
-// List API 直接返回缓存，无阻塞
+// List API 直接返回缓存，非 admin 按资源权限过滤
 func (h *BillingHandler) List(c *gin.Context) {
 	h.mu.RLock()
 	data := h.cache
@@ -93,6 +95,38 @@ func (h *BillingHandler) List(c *gin.Context) {
 	if data == nil {
 		data = []BillingItem{}
 	}
+
+	ps := GetPermissionSet(c, h.permCache)
+	if ps != nil {
+		// Build instance_id → host_id mapping from cloud_instances
+		idMap := make(map[string]string)
+		if h.cloudStore != nil {
+			if instances, err := h.cloudStore.ListAllInstances(); err == nil {
+				for _, inst := range instances {
+					idMap[inst.InstanceID] = inst.HostID
+				}
+			}
+		}
+		filtered := make([]BillingItem, 0, len(data))
+		for _, item := range data {
+			switch item.Type {
+			case "ecs":
+				if hostID, ok := idMap[item.ID]; ok && ps.CanSeeServer(hostID) {
+					filtered = append(filtered, item)
+				}
+			case "rds":
+				if hostID, ok := idMap[item.ID]; ok && ps.CanSeeDatabase(hostID) {
+					filtered = append(filtered, item)
+				}
+			case "ssl":
+				// SSL certificates are admin-only, non-admin never sees them
+			default:
+				filtered = append(filtered, item)
+			}
+		}
+		data = filtered
+	}
+
 	c.JSON(http.StatusOK, data)
 }
 

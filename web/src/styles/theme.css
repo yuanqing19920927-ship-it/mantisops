@@ -160,6 +160,85 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
 }
 
+/* AI Report Markdown content */
+.ai-report-content {
+  color: #495057;
+  font-size: 14px;
+  line-height: 1.75;
+}
+.ai-report-content h1 { font-size: 24px; font-weight: 700; margin: 28px 0 12px; color: #212529; }
+.ai-report-content h2 { font-size: 20px; font-weight: 600; margin: 24px 0 10px; color: #212529; border-bottom: 1px solid #e9ecef; padding-bottom: 6px; }
+.ai-report-content h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; color: #343a40; }
+.ai-report-content h4 { font-size: 14px; font-weight: 600; margin: 16px 0 6px; color: #343a40; }
+.ai-report-content p { margin: 0 0 12px; }
+.ai-report-content ul, .ai-report-content ol { margin: 0 0 12px; padding-left: 24px; }
+.ai-report-content li { margin-bottom: 4px; }
+.ai-report-content blockquote {
+  border-left: 3px solid #2ca07a;
+  padding: 8px 16px;
+  margin: 12px 0;
+  background: rgba(44, 160, 122, 0.05);
+  color: #495057;
+  border-radius: 0 6px 6px 0;
+}
+.ai-report-content code {
+  background: #f3f3f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  color: #e83e8c;
+}
+.ai-report-content pre {
+  background: #212529;
+  color: #e9ecef;
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.ai-report-content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: 13px;
+}
+.ai-report-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.ai-report-content th {
+  background: #f3f3f9;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid #e9ecef;
+  color: #495057;
+}
+.ai-report-content td {
+  padding: 8px 12px;
+  border: 1px solid #e9ecef;
+}
+.ai-report-content tr:nth-child(even) {
+  background: #f8f9fa;
+}
+.ai-report-content a {
+  color: #2ca07a;
+  text-decoration: none;
+}
+.ai-report-content a:hover {
+  text-decoration: underline;
+}
+.ai-report-content hr {
+  border: none;
+  border-top: 1px solid #e9ecef;
+  margin: 20px 0;
+}
+.ai-report-content strong { font-weight: 600; color: #343a40; }
+.ai-report-content img { max-width: 100%; border-radius: 8px; }
+
 /* Selection */
 ::selection {
   background: rgba(44, 160, 122, 0.2);

@@ -169,6 +169,35 @@ func (s *AlertStore) DeleteChannel(id int) error {
 	return err
 }
 
+// FiringAlertTarget holds minimal info for Hub alert target mapping.
+type FiringAlertTarget struct {
+	EventID  int
+	RuleType string
+	TargetID string
+}
+
+// ListFiringAlertTargets returns event_id, rule_type, target_id for all firing alerts.
+func (s *AlertStore) ListFiringAlertTargets() ([]FiringAlertTarget, error) {
+	rows, err := s.db.Query(
+		`SELECT e.id, r.type, e.target_id
+		FROM alert_events e
+		JOIN alert_rules r ON r.id = e.rule_id
+		WHERE e.status = 'firing'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var targets []FiringAlertTarget
+	for rows.Next() {
+		var t FiringAlertTarget
+		if err := rows.Scan(&t.EventID, &t.RuleType, &t.TargetID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, nil
+}
+
 // ---------- Alert Events ----------
 
 func (s *AlertStore) ListFiringEvents() ([]model.AlertEvent, error) {
@@ -238,6 +267,54 @@ func (s *AlertStore) GetStats() (*model.AlertStats, error) {
 		return nil, err
 	}
 	return &st, nil
+}
+
+// GetStatsFiltered returns alert stats filtered to events whose target_id is visible.
+// visibleTargets: list of host_ids and probe IDs the user can see.
+// For disk/container alerts (target_id = "host_id:xxx"), we use LIKE matching.
+func (s *AlertStore) GetStatsFiltered(visibleTargets []string) (*model.AlertStats, error) {
+	if len(visibleTargets) == 0 {
+		return &model.AlertStats{}, nil
+	}
+	// Build WHERE: target_id IN (?,?,...) OR target_id LIKE 'host_id:%' for each host_id
+	var conditions []string
+	var args []interface{}
+	for _, t := range visibleTargets {
+		conditions = append(conditions, "target_id = ?")
+		args = append(args, t)
+		// Also match disk/container targets: "host_id:mount" or "host_id:container"
+		conditions = append(conditions, "target_id LIKE ?")
+		args = append(args, t+":%")
+	}
+	whereClause := "(" + strings.Join(conditions, " OR ") + ")"
+
+	var st model.AlertStats
+	err := s.db.QueryRow(`
+		SELECT
+			COALESCE(SUM(CASE WHEN status='firing' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status='firing' AND silenced=0 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status='firing' AND fired_at >= date('now','start of day') THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status='resolved' AND resolved_at >= date('now','start of day') THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN silenced=1 AND acked_at >= date('now','start of day') THEN 1 ELSE 0 END), 0)
+		FROM alert_events WHERE `+whereClause,
+		args...,
+	).Scan(&st.Firing, &st.FiringUnsilenced, &st.TodayFired, &st.TodayResolved, &st.TodaySilenced)
+	if err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+func (s *AlertStore) GetEvent(id int) (*model.AlertEvent, error) {
+	var e model.AlertEvent
+	err := s.db.QueryRow(
+		`SELECT id, rule_id, rule_name, target_id, target_label, level, status, silenced, value, message, fired_at, resolved_at, resolve_type, acked_at, acked_by
+		 FROM alert_events WHERE id=?`, id).
+		Scan(&e.ID, &e.RuleID, &e.RuleName, &e.TargetID, &e.TargetLabel, &e.Level, &e.Status, &e.Silenced, &e.Value, &e.Message, &e.FiredAt, &e.ResolvedAt, &e.ResolveType, &e.AckedAt, &e.AckedBy)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
 }
 
 func (s *AlertStore) AckEvent(id int, username string) error {

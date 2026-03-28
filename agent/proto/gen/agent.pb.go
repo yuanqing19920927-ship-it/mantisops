@@ -1005,6 +1005,186 @@ func (x *HeartbeatResponse) GetReportInterval() int32 {
 	return 0
 }
 
+type ListeningService struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Pid           int32                  `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	CmdLine       string                 `protobuf:"bytes,3,opt,name=cmd_line,json=cmdLine,proto3" json:"cmd_line,omitempty"`
+	Port          int32                  `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
+	Protocol      string                 `protobuf:"bytes,5,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	BindAddr      string                 `protobuf:"bytes,6,opt,name=bind_addr,json=bindAddr,proto3" json:"bind_addr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListeningService) Reset() {
+	*x = ListeningService{}
+	mi := &file_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListeningService) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListeningService) ProtoMessage() {}
+
+func (x *ListeningService) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListeningService.ProtoReflect.Descriptor instead.
+func (*ListeningService) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ListeningService) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *ListeningService) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ListeningService) GetCmdLine() string {
+	if x != nil {
+		return x.CmdLine
+	}
+	return ""
+}
+
+func (x *ListeningService) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ListeningService) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *ListeningService) GetBindAddr() string {
+	if x != nil {
+		return x.BindAddr
+	}
+	return ""
+}
+
+type ReportServicesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HostId        string                 `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
+	Services      []*ListeningService    `protobuf:"bytes,2,rep,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportServicesRequest) Reset() {
+	*x = ReportServicesRequest{}
+	mi := &file_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportServicesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportServicesRequest) ProtoMessage() {}
+
+func (x *ReportServicesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportServicesRequest.ProtoReflect.Descriptor instead.
+func (*ReportServicesRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ReportServicesRequest) GetHostId() string {
+	if x != nil {
+		return x.HostId
+	}
+	return ""
+}
+
+func (x *ReportServicesRequest) GetServices() []*ListeningService {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+type ReportServicesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportServicesResponse) Reset() {
+	*x = ReportServicesResponse{}
+	mi := &file_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportServicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportServicesResponse) ProtoMessage() {}
+
+func (x *ReportServicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportServicesResponse.ProtoReflect.Descriptor instead.
+func (*ReportServicesResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ReportServicesResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
 var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
@@ -1103,11 +1283,24 @@ const file_agent_proto_rawDesc = "" +
 	"\x11HeartbeatResponse\x12\x1f\n" +
 	"\vserver_time\x18\x01 \x01(\x03R\n" +
 	"serverTime\x12'\n" +
-	"\x0freport_interval\x18\x02 \x01(\x05R\x0ereportInterval2\xe2\x01\n" +
+	"\x0freport_interval\x18\x02 \x01(\x05R\x0ereportInterval\"\xa0\x01\n" +
+	"\x10ListeningService\x12\x10\n" +
+	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
+	"\bcmd_line\x18\x03 \x01(\tR\acmdLine\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\x05R\x04port\x12\x1a\n" +
+	"\bprotocol\x18\x05 \x01(\tR\bprotocol\x12\x1b\n" +
+	"\tbind_addr\x18\x06 \x01(\tR\bbindAddr\"i\n" +
+	"\x15ReportServicesRequest\x12\x17\n" +
+	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x127\n" +
+	"\bservices\x18\x02 \x03(\v2\x1b.mantisops.ListeningServiceR\bservices\"(\n" +
+	"\x16ReportServicesResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok2\xb9\x02\n" +
 	"\fAgentService\x12C\n" +
 	"\bRegister\x12\x1a.mantisops.RegisterRequest\x1a\x1b.mantisops.RegisterResponse\x12E\n" +
 	"\rReportMetrics\x12\x19.mantisops.MetricsPayload\x1a\x19.mantisops.ReportResponse\x12F\n" +
-	"\tHeartbeat\x12\x1b.mantisops.HeartbeatRequest\x1a\x1c.mantisops.HeartbeatResponseB\aZ\x05./genb\x06proto3"
+	"\tHeartbeat\x12\x1b.mantisops.HeartbeatRequest\x1a\x1c.mantisops.HeartbeatResponse\x12U\n" +
+	"\x0eReportServices\x12 .mantisops.ReportServicesRequest\x1a!.mantisops.ReportServicesResponseB\aZ\x05./genb\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -1121,20 +1314,23 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_agent_proto_goTypes = []any{
-	(*RegisterRequest)(nil),   // 0: mantisops.RegisterRequest
-	(*RegisterResponse)(nil),  // 1: mantisops.RegisterResponse
-	(*MetricsPayload)(nil),    // 2: mantisops.MetricsPayload
-	(*CpuMetrics)(nil),        // 3: mantisops.CpuMetrics
-	(*MemoryMetrics)(nil),     // 4: mantisops.MemoryMetrics
-	(*DiskMetrics)(nil),       // 5: mantisops.DiskMetrics
-	(*NetworkMetrics)(nil),    // 6: mantisops.NetworkMetrics
-	(*DockerMetrics)(nil),     // 7: mantisops.DockerMetrics
-	(*GpuMetrics)(nil),        // 8: mantisops.GpuMetrics
-	(*ReportResponse)(nil),    // 9: mantisops.ReportResponse
-	(*HeartbeatRequest)(nil),  // 10: mantisops.HeartbeatRequest
-	(*HeartbeatResponse)(nil), // 11: mantisops.HeartbeatResponse
+	(*RegisterRequest)(nil),        // 0: mantisops.RegisterRequest
+	(*RegisterResponse)(nil),       // 1: mantisops.RegisterResponse
+	(*MetricsPayload)(nil),         // 2: mantisops.MetricsPayload
+	(*CpuMetrics)(nil),             // 3: mantisops.CpuMetrics
+	(*MemoryMetrics)(nil),          // 4: mantisops.MemoryMetrics
+	(*DiskMetrics)(nil),            // 5: mantisops.DiskMetrics
+	(*NetworkMetrics)(nil),         // 6: mantisops.NetworkMetrics
+	(*DockerMetrics)(nil),          // 7: mantisops.DockerMetrics
+	(*GpuMetrics)(nil),             // 8: mantisops.GpuMetrics
+	(*ReportResponse)(nil),         // 9: mantisops.ReportResponse
+	(*HeartbeatRequest)(nil),       // 10: mantisops.HeartbeatRequest
+	(*HeartbeatResponse)(nil),      // 11: mantisops.HeartbeatResponse
+	(*ListeningService)(nil),       // 12: mantisops.ListeningService
+	(*ReportServicesRequest)(nil),  // 13: mantisops.ReportServicesRequest
+	(*ReportServicesResponse)(nil), // 14: mantisops.ReportServicesResponse
 }
 var file_agent_proto_depIdxs = []int32{
 	3,  // 0: mantisops.MetricsPayload.cpu:type_name -> mantisops.CpuMetrics
@@ -1143,17 +1339,20 @@ var file_agent_proto_depIdxs = []int32{
 	6,  // 3: mantisops.MetricsPayload.networks:type_name -> mantisops.NetworkMetrics
 	7,  // 4: mantisops.MetricsPayload.containers:type_name -> mantisops.DockerMetrics
 	8,  // 5: mantisops.MetricsPayload.gpu:type_name -> mantisops.GpuMetrics
-	0,  // 6: mantisops.AgentService.Register:input_type -> mantisops.RegisterRequest
-	2,  // 7: mantisops.AgentService.ReportMetrics:input_type -> mantisops.MetricsPayload
-	10, // 8: mantisops.AgentService.Heartbeat:input_type -> mantisops.HeartbeatRequest
-	1,  // 9: mantisops.AgentService.Register:output_type -> mantisops.RegisterResponse
-	9,  // 10: mantisops.AgentService.ReportMetrics:output_type -> mantisops.ReportResponse
-	11, // 11: mantisops.AgentService.Heartbeat:output_type -> mantisops.HeartbeatResponse
-	9,  // [9:12] is the sub-list for method output_type
-	6,  // [6:9] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	12, // 6: mantisops.ReportServicesRequest.services:type_name -> mantisops.ListeningService
+	0,  // 7: mantisops.AgentService.Register:input_type -> mantisops.RegisterRequest
+	2,  // 8: mantisops.AgentService.ReportMetrics:input_type -> mantisops.MetricsPayload
+	10, // 9: mantisops.AgentService.Heartbeat:input_type -> mantisops.HeartbeatRequest
+	13, // 10: mantisops.AgentService.ReportServices:input_type -> mantisops.ReportServicesRequest
+	1,  // 11: mantisops.AgentService.Register:output_type -> mantisops.RegisterResponse
+	9,  // 12: mantisops.AgentService.ReportMetrics:output_type -> mantisops.ReportResponse
+	11, // 13: mantisops.AgentService.Heartbeat:output_type -> mantisops.HeartbeatResponse
+	14, // 14: mantisops.AgentService.ReportServices:output_type -> mantisops.ReportServicesResponse
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -1167,7 +1366,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -56,6 +56,7 @@ export interface ProbeRule {
   interval_sec: number
   timeout_sec: number
   enabled: boolean
+  source?: 'manual' | 'scan'
 }
 
 export async function getProbes(): Promise<ProbeRule[]> {
@@ -178,6 +179,14 @@ export async function deleteGroup(id: number) {
 
 export async function setServerGroup(hostId: string, groupId: number | null) {
   await api.put(`/servers/${hostId}/group`, { group_id: groupId })
+}
+
+export async function batchSortGroups(items: { id: number; sort_order: number }[]) {
+  await api.put('/groups-sort', { items })
+}
+
+export async function batchSortServers(items: { host_id: string; sort_order: number }[]) {
+  await api.put('/servers-sort', { items })
 }
 
 // Alerts

@@ -4,10 +4,12 @@ import { ServerCard } from '../../components/ServerCard'
 import { StatusBadge } from '../../components/StatusBadge'
 import { Link } from 'react-router-dom'
 import { formatBytesPS } from '../../utils/format'
-import { createGroup, deleteGroup, setServerGroup } from '../../api/client'
+import { createGroup, deleteGroup, setServerGroup, batchSortGroups, batchSortServers } from '../../api/client'
+import { useAuthStore } from '../../stores/authStore'
 import type { ServerGroup } from '../../types'
 
 export default function Servers() {
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
   const { servers, metrics, groups, fetchDashboard } = useServerStore()
   const [view, setView] = useState<'card' | 'table'>('card')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -99,6 +101,24 @@ export default function Servers() {
     fetchDashboard()
   }
 
+  const handleMoveGroup = async (index: number, direction: -1 | 1) => {
+    const newGroups = [...groups]
+    const target = index + direction
+    if (target < 0 || target >= newGroups.length) return
+    ;[newGroups[index], newGroups[target]] = [newGroups[target], newGroups[index]]
+    await batchSortGroups(newGroups.map((g, i) => ({ id: g.id, sort_order: i })))
+    fetchDashboard()
+  }
+
+  const handleMoveServer = async (groupServers: typeof serverMetrics, index: number, direction: -1 | 1) => {
+    const list = [...groupServers]
+    const target = index + direction
+    if (target < 0 || target >= list.length) return
+    ;[list[index], list[target]] = [list[target], list[index]]
+    await batchSortServers(list.map((s, i) => ({ host_id: s.host_id, sort_order: i })))
+    fetchDashboard()
+  }
+
   const avgCpuColor =
     avgCpu >= 80 ? 'text-[#f06548]' : avgCpu >= 60 ? 'text-[#f7b84b]' : 'text-[#495057]'
 
@@ -110,17 +130,19 @@ export default function Servers() {
         <h4 className="text-[18px] font-semibold text-[#495057] mb-0">服务器列表</h4>
         <div className="flex items-center gap-2">
           {/* Group management toggle */}
-          <button
-            onClick={() => setShowGroupMgmt(!showGroupMgmt)}
-            className={`flex items-center gap-1 px-3 py-1.5 text-[13px] border rounded transition-colors ${
-              showGroupMgmt
-                ? 'border-[#2ca07a] text-[#2ca07a] bg-[rgba(44,160,122,0.05)]'
-                : 'border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a]'
-            }`}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>folder_managed</span>
-            <span className="hidden sm:inline">管理分组</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowGroupMgmt(!showGroupMgmt)}
+              className={`flex items-center gap-1 px-3 py-1.5 text-[13px] border rounded transition-colors ${
+                showGroupMgmt
+                  ? 'border-[#2ca07a] text-[#2ca07a] bg-[rgba(44,160,122,0.05)]'
+                  : 'border-[#ced4da] text-[#878a99] hover:border-[#2ca07a] hover:text-[#2ca07a]'
+              }`}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>folder_managed</span>
+              <span className="hidden sm:inline">管理分组</span>
+            </button>
+          )}
 
           {/* Card / Table toggle (btn-group style) */}
           <div className="flex">
@@ -158,14 +180,23 @@ export default function Servers() {
             <span className="material-symbols-outlined text-[#2ca07a]" style={{ fontSize: '16px' }}>folder_managed</span>
             分组管理
           </h6>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {groups.map(g => (
-              <div key={g.id} className="flex items-center gap-1.5 px-3 py-1 bg-[#f8f9fa] border border-[#e9ecef] rounded text-[12px] text-[#495057]">
-                <span>{g.name}</span>
-                <button
-                  onClick={() => handleDeleteGroup(g.id)}
-                  className="text-[#878a99] hover:text-[#f06548] transition-colors leading-none"
-                >
+          <div className="flex flex-col gap-1.5 mb-3">
+            {groups.map((g, idx) => (
+              <div key={g.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f8f9fa] border border-[#e9ecef] rounded text-[12px] text-[#495057]">
+                <span className="flex-1 font-medium">{g.name}</span>
+                <button onClick={() => handleMoveGroup(idx, -1)} disabled={idx === 0}
+                  className="text-[#878a99] hover:text-[#2ca07a] disabled:opacity-30 disabled:cursor-not-allowed transition-colors leading-none"
+                  title="上移">
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>arrow_upward</span>
+                </button>
+                <button onClick={() => handleMoveGroup(idx, 1)} disabled={idx === groups.length - 1}
+                  className="text-[#878a99] hover:text-[#2ca07a] disabled:opacity-30 disabled:cursor-not-allowed transition-colors leading-none"
+                  title="下移">
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>arrow_downward</span>
+                </button>
+                <button onClick={() => handleDeleteGroup(g.id)}
+                  className="text-[#878a99] hover:text-[#f06548] transition-colors leading-none ml-1"
+                  title="删除">
                   <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>close</span>
                 </button>
               </div>
@@ -265,6 +296,9 @@ export default function Servers() {
                 {groups.length > 0 && (
                   <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide hidden md:table-cell">分组</th>
                 )}
+                {showGroupMgmt && (
+                  <th className="text-center px-4 py-3 text-[11px] text-[#878a99] font-semibold uppercase tracking-wide w-[70px]">排序</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -272,7 +306,7 @@ export default function Servers() {
                 const key = group ? `g-${group.id}` : 'ungrouped'
                 const isCollapsed = collapsed.has(key)
                 const onlineInGroup = groupServers.filter(s => s.status === 'online').length
-                const colSpan = groups.length > 0 ? 10 : 9
+                const colSpan = 9 + (groups.length > 0 ? 1 : 0) + (showGroupMgmt ? 1 : 0)
                 return [
                   <tr key={`header-${key}`} className="bg-[#f3f3f9] border-b border-[#e9ecef]">
                     <td colSpan={colSpan} className="p-0">
@@ -373,6 +407,22 @@ export default function Servers() {
                                 <option key={g.id} value={g.id}>{g.name}</option>
                               ))}
                             </select>
+                          </td>
+                        )}
+                        {showGroupMgmt && (
+                          <td className="text-center px-4 py-3">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <button onClick={() => handleMoveServer(groupServers, groupServers.indexOf(s), -1)}
+                                disabled={groupServers.indexOf(s) === 0}
+                                className="text-[#878a99] hover:text-[#2ca07a] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>arrow_upward</span>
+                              </button>
+                              <button onClick={() => handleMoveServer(groupServers, groupServers.indexOf(s), 1)}
+                                disabled={groupServers.indexOf(s) === groupServers.length - 1}
+                                className="text-[#878a99] hover:text-[#2ca07a] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>arrow_downward</span>
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
