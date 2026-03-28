@@ -16,8 +16,51 @@ import (
 type InstallOptions struct {
 	AgentID         string `json:"agent_id"`
 	CollectInterval int    `json:"collect_interval"`
-	Docker          bool   `json:"docker"`
-	GPU             bool   `json:"gpu"`
+	Docker          *bool  `json:"docker"`
+	EnableDocker    *bool  `json:"enable_docker"` // alias from frontend API
+	GPU             *bool  `json:"gpu"`
+	EnableGPU       *bool  `json:"enable_gpu"` // alias from frontend API
+}
+
+// dockerFlag returns the YAML fragment for docker config.
+// nil means omit (let agent auto-detect).
+func (o *InstallOptions) dockerFlag() *bool {
+	if o.EnableDocker != nil {
+		return o.EnableDocker
+	}
+	return o.Docker
+}
+
+// gpuFlag returns the YAML fragment for gpu config.
+func (o *InstallOptions) gpuFlag() *bool {
+	if o.EnableGPU != nil {
+		return o.EnableGPU
+	}
+	return o.GPU
+}
+
+// buildAgentYAML generates agent.yaml content.
+// docker/gpu nil = omit (let agent auto-detect), non-nil = write explicit value.
+func buildAgentYAML(grpcAddr, pskToken string, interval int, docker, gpu *bool, agentID string) string {
+	var collectExtra string
+	if docker != nil {
+		collectExtra += fmt.Sprintf("\n  docker: %v", *docker)
+	}
+	if gpu != nil {
+		collectExtra += fmt.Sprintf("\n  gpu: %v", *gpu)
+	}
+	return fmt.Sprintf(`server:
+  address: "%s"
+  token: "%s"
+  tls:
+    enabled: false
+
+collect:
+  interval: %d%s
+
+agent:
+  id: "%s"
+`, grpcAddr, pskToken, interval, collectExtra, agentID)
 }
 
 type TestConnRequest struct {
@@ -104,7 +147,9 @@ func (d *Deployer) TestConnection(req TestConnRequest) (*TestConnResult, error) 
 
 // Deploy starts async agent installation. Uses CAS to prevent concurrent deploys.
 func (d *Deployer) Deploy(managedID int) error {
-	ok, err := d.managedStore.CASUpdateState(managedID, []string{store.InstallStatePending, store.InstallStateFailed}, store.InstallStateTesting)
+	ok, err := d.managedStore.CASUpdateState(managedID,
+		[]string{store.InstallStatePending, store.InstallStateFailed, store.InstallStateOnline},
+		store.InstallStateTesting)
 	if err != nil {
 		return err
 	}
@@ -116,14 +161,26 @@ func (d *Deployer) Deploy(managedID int) error {
 	return nil
 }
 
-// NotifyRegistered is called by gRPC handler when a new agent registers
+// NotifyRegistered is called by gRPC handler when a new agent registers.
+// It notifies any active deploy goroutine AND resolves stale "waiting" records.
 func (d *Deployer) NotifyRegistered(hostID string) {
+	// Notify active deploy goroutine
 	d.mu.Lock()
 	ch, ok := d.pendingCh[hostID]
 	d.mu.Unlock()
 	if ok {
 		close(ch)
+		return
 	}
+
+	// No active deploy — check DB for stale "waiting" record with this agent_host_id
+	d.managedStore.ResolveWaiting(hostID)
+}
+
+// RecoverStaleWaiting scans for managed_servers stuck in "waiting" state
+// whose agents have already registered. Call once at startup.
+func (d *Deployer) RecoverStaleWaiting() {
+	d.managedStore.ResolveAllWaiting(d.serverStore)
 }
 
 func (d *Deployer) registerWait(agentID string) chan struct{} {
@@ -193,10 +250,23 @@ func (d *Deployer) runDeploy(managedID int) {
 	d.managedStore.UpdateDetectedArch(managedID, arch)
 	d.broadcast(managedID, store.InstallStateConnected, fmt.Sprintf("架构: %s", arch))
 
-	// Detect sudo availability
+	// Detect sudo availability (try passwordless first, then with password via -S)
 	hasSudo := false
-	if _, _, err := sshClient.Execute("sudo true"); err == nil {
+	sudoPrefix := "sudo"
+	if _, _, err := sshClient.Execute("sudo -n true 2>/dev/null"); err == nil {
 		hasSudo = true
+		sudoPrefix = "sudo"
+	} else if sshClient.password != "" {
+		// Try sudo with password piped via stdin
+		if _, _, err := sshClient.Execute(fmt.Sprintf("echo '%s' | sudo -S true 2>/dev/null", sshClient.password)); err == nil {
+			hasSudo = true
+			sudoPrefix = fmt.Sprintf("echo '%s' | sudo -S", sshClient.password)
+		}
+	}
+
+	// sudo helper: wraps command with the appropriate sudo invocation
+	sudo := func(cmd string) string {
+		return sudoPrefix + " " + cmd
 	}
 
 	if hasSudo {
@@ -209,7 +279,7 @@ func (d *Deployer) runDeploy(managedID int) {
 	stdout, _, _ := sshClient.Execute("pgrep -x mantisops-agent")
 	if strings.TrimSpace(stdout) != "" {
 		if hasSudo {
-			sshClient.Execute("sudo systemctl stop mantisops-agent 2>/dev/null || sudo killall mantisops-agent 2>/dev/null")
+			sshClient.Execute(sudo("systemctl stop mantisops-agent 2>/dev/null") + " || " + sudo("killall mantisops-agent 2>/dev/null"))
 		} else {
 			sshClient.Execute("pkill -x mantisops-agent 2>/dev/null")
 		}
@@ -243,33 +313,32 @@ func (d *Deployer) runDeploy(managedID int) {
 		agentID = generateAgentID(managed.Host)
 	}
 
+	// Override with latest config from servers table (set via detail page config dialog)
+	if managed.AgentHostID != "" {
+		if srv, err := d.serverStore.GetByHostID(managed.AgentHostID); err == nil {
+			if srv.CollectDocker != nil {
+				opts.EnableDocker = srv.CollectDocker
+			}
+			if srv.CollectGPU != nil {
+				opts.EnableGPU = srv.CollectGPU
+			}
+		}
+	}
+
 	if hasSudo {
 		// ── System-level install (sudo) ──
-		agentYAML := fmt.Sprintf(`server:
-  address: "%s"
-  token: "%s"
-  tls:
-    enabled: false
+		agentYAML := buildAgentYAML(d.grpcAddr, d.pskToken, opts.CollectInterval, opts.dockerFlag(), opts.gpuFlag(), agentID)
 
-collect:
-  interval: %d
-  docker: %v
-  gpu: %v
-
-agent:
-  id: "%s"
-`, d.grpcAddr, d.pskToken, opts.CollectInterval, opts.Docker, opts.GPU, agentID)
-
-		sshClient.Execute("sudo mkdir -p /etc/mantisops")
+		sshClient.Execute(sudo("mkdir -p /etc/mantisops"))
 		if err := sshClient.WriteFile("/tmp/agent.yaml", []byte(agentYAML), 0644); err != nil {
 			d.fail(managedID, "写入配置失败: "+err.Error())
 			return
 		}
 
 		cmds := []string{
-			"sudo mv /tmp/agent.yaml /etc/mantisops/agent.yaml",
-			"sudo mv /tmp/mantisops-agent /usr/local/bin/mantisops-agent",
-			"sudo chmod +x /usr/local/bin/mantisops-agent",
+			sudo("mv /tmp/agent.yaml /etc/mantisops/agent.yaml"),
+			sudo("mv /tmp/mantisops-agent /usr/local/bin/mantisops-agent"),
+			sudo("chmod +x /usr/local/bin/mantisops-agent"),
 		}
 		for _, cmd := range cmds {
 			if _, stderr, err := sshClient.Execute(cmd); err != nil {
@@ -298,10 +367,10 @@ WantedBy=multi-user.target
 		}
 
 		startCmds := []string{
-			"sudo mv /tmp/mantisops-agent.service /etc/systemd/system/mantisops-agent.service",
-			"sudo systemctl daemon-reload",
-			"sudo systemctl enable mantisops-agent",
-			"sudo systemctl start mantisops-agent",
+			sudo("mv /tmp/mantisops-agent.service /etc/systemd/system/mantisops-agent.service"),
+			sudo("systemctl daemon-reload"),
+			sudo("systemctl enable mantisops-agent"),
+			sudo("systemctl start mantisops-agent"),
 		}
 		for _, cmd := range startCmds {
 			if _, stderr, err := sshClient.Execute(cmd); err != nil {
@@ -311,20 +380,7 @@ WantedBy=multi-user.target
 		}
 	} else {
 		// ── User-level install (no sudo) ──
-		agentYAML := fmt.Sprintf(`server:
-  address: "%s"
-  token: "%s"
-  tls:
-    enabled: false
-
-collect:
-  interval: %d
-  docker: %v
-  gpu: %v
-
-agent:
-  id: "%s"
-`, d.grpcAddr, d.pskToken, opts.CollectInterval, opts.Docker, opts.GPU, agentID)
+		agentYAML := buildAgentYAML(d.grpcAddr, d.pskToken, opts.CollectInterval, opts.dockerFlag(), opts.gpuFlag(), agentID)
 
 		setupCmds := []string{
 			"mkdir -p ~/.local/bin ~/.config/mantisops",
@@ -434,7 +490,7 @@ nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.
 				// Agent process died — check logs for error
 				var errMsg string
 				if hasSudo {
-					logOut, _, _ := sshClient.Execute("sudo journalctl -u mantisops-agent --no-pager -n 5 2>/dev/null")
+					logOut, _, _ := sshClient.Execute(sudo("journalctl -u mantisops-agent --no-pager -n 5 2>/dev/null"))
 					errMsg = strings.TrimSpace(logOut)
 				} else {
 					logOut, _, _ := sshClient.Execute("tail -5 ~/.config/mantisops/agent.log 2>/dev/null")
@@ -449,7 +505,7 @@ nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.
 			// Check for gRPC errors in agent log (incompatible proto, auth failure, etc.)
 			var logOut string
 			if hasSudo {
-				logOut, _, _ = sshClient.Execute("sudo journalctl -u mantisops-agent --no-pager -n 10 2>/dev/null")
+				logOut, _, _ = sshClient.Execute(sudo("journalctl -u mantisops-agent --no-pager -n 10 2>/dev/null"))
 			} else {
 				logOut, _, _ = sshClient.Execute("tail -10 ~/.config/mantisops/agent.log 2>/dev/null")
 			}
@@ -457,7 +513,7 @@ nohup ~/.local/bin/mantisops-agent -config ~/.config/mantisops/agent.yaml >> ~/.
 				d.fail(managedID, "Agent 版本不兼容（proto 服务名不匹配），请更新 build 目录中的 Agent 二进制后重试")
 				// Stop the broken agent
 				if hasSudo {
-					sshClient.Execute("sudo systemctl stop mantisops-agent 2>/dev/null")
+					sshClient.Execute(sudo("systemctl stop mantisops-agent 2>/dev/null"))
 				} else {
 					sshClient.Execute("pkill -x mantisops-agent 2>/dev/null")
 				}
@@ -478,7 +534,7 @@ func (d *Deployer) fail(managedID int, errMsg string) {
 }
 
 func (d *Deployer) broadcast(managedID int, state, message string) {
-	d.hub.BroadcastJSON(map[string]interface{}{
+	d.hub.BroadcastAdmin(map[string]interface{}{
 		"type":       "deploy_progress",
 		"managed_id": managedID,
 		"state":      state,

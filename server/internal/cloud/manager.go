@@ -181,7 +181,7 @@ func (m *Manager) Sync(accountID int) error {
 }
 
 func (m *Manager) broadcast(msgType string, accountID int, state, message string) {
-	m.hub.BroadcastJSON(map[string]interface{}{
+	m.hub.BroadcastAdmin(map[string]interface{}{
 		"type":       msgType,
 		"account_id": accountID,
 		"state":      state,
