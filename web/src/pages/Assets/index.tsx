@@ -18,6 +18,8 @@ export default function Assets() {
 
   useEffect(() => { load(); fetchDashboard() }, [fetchDashboard])
 
+  // Discovered services disabled — using manual asset management only
+
   const getServer = (sid: number) => servers.find((sv) => sv.id === sid)
 
   const getServerName = (sid: number) => {
@@ -49,6 +51,9 @@ export default function Assets() {
     acc[a.server_id].push(a)
     return acc
   }, {} as Record<number, AssetInfo[]>)
+
+  // Collect all server IDs that have manual assets
+  const allServerIds = Object.keys(grouped).map(Number)
 
   const handleAdd = async () => {
     if (!form.name || !form.server_id) return
@@ -175,7 +180,10 @@ export default function Assets() {
       )}
 
       {/* Server groups */}
-      {Object.entries(grouped).map(([sid, items]) => (
+      {allServerIds.map((sid) => {
+        const manualItems = grouped[sid] ?? []
+
+        return (
         <div key={sid} className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] mb-5 overflow-hidden">
           {/* Group header */}
           <div className="flex items-center gap-4 px-5 py-4 bg-[#f8f9fa] border-b border-[#e9ebec]">
@@ -185,98 +193,110 @@ export default function Assets() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-semibold text-[#495057]">
-                  {getServerName(parseInt(sid))}
+                  {getServerName(sid)}
                 </h2>
                 <span className="text-[11px] px-2 py-0.5 rounded font-mono bg-[#0ab39c]/10 text-[#0ab39c]">
-                  {getServerIp(parseInt(sid))}
+                  {getServerIp(sid)}
                 </span>
               </div>
-              <p className="text-[12px] text-[#878a99] mt-0.5 truncate">{getServerInfo(parseInt(sid))}</p>
+              <p className="text-[12px] text-[#878a99] mt-0.5 truncate">{getServerInfo(sid)}</p>
             </div>
             <div className="flex-shrink-0 text-right">
-              <div className="text-lg font-bold text-[#495057]">{getAssetCount(parseInt(sid))}</div>
+              <div className="text-lg font-bold text-[#495057]">{getAssetCount(sid)}</div>
               <div className="text-[11px] text-[#878a99]">个资产</div>
             </div>
           </div>
 
           {/* Asset table - desktop */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-[#f8f9fa]">
-                  <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">名称</th>
-                  <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">技术栈</th>
-                  <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">路径</th>
-                  <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">端口</th>
-                  <th className="text-right text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((a, idx) => (
-                  <tr
-                    key={a.id}
-                    className={`group hover:bg-[#f8f9fa] transition-colors ${idx < items.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
-                  >
-                    <td className="px-5 py-3.5 text-[#495057] font-medium text-sm">{a.name}</td>
-                    <td className="px-5 py-3.5">{renderTechStack(a.tech_stack)}</td>
-                    <td className="px-5 py-3.5">
-                      {a.path ? (
-                        <span className="text-xs font-mono bg-[#f3f6f9] text-[#495057] px-2 py-0.5 rounded">
-                          {a.path}
-                        </span>
-                      ) : (
-                        <span className="text-[#adb5bd] text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {a.port ? (
-                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#495057] text-white">
-                          {a.port}
-                        </span>
-                      ) : (
-                        <span className="text-[#adb5bd] text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <button
-                        onClick={() => handleDelete(a.id!)}
-                        className="text-xs text-[#878a99] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#f06548] px-2 py-1 rounded hover:bg-[#f06548]/10"
-                      >
-                        删除
-                      </button>
-                    </td>
+          {manualItems.length > 0 && (
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#f8f9fa]">
+                    <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">名称</th>
+                    <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">技术栈</th>
+                    <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">路径</th>
+                    <th className="text-left text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">端口</th>
+                    <th className="text-right text-[11px] text-[#878a99] uppercase tracking-wider px-5 py-3 font-medium border-b border-[#e9ebec]">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {manualItems.map((a, idx) => (
+                    <tr
+                      key={a.id}
+                      className={`group hover:bg-[#f8f9fa] transition-colors ${idx < manualItems.length - 1 ? 'border-b border-[#f2f4f7]' : ''}`}
+                    >
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[#495057] font-medium text-sm">{a.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5">{renderTechStack(a.tech_stack)}</td>
+                      <td className="px-5 py-3.5">
+                        {a.path ? (
+                          <span className="text-xs font-mono bg-[#f3f6f9] text-[#495057] px-2 py-0.5 rounded">
+                            {a.path}
+                          </span>
+                        ) : (
+                          <span className="text-[#adb5bd] text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {a.port ? (
+                          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#495057] text-white">
+                            {a.port}
+                          </span>
+                        ) : (
+                          <span className="text-[#adb5bd] text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <button
+                          onClick={() => handleDelete(a.id!)}
+                          className="text-xs text-[#878a99] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#f06548] px-2 py-1 rounded hover:bg-[#f06548]/10"
+                        >
+                          删除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Asset cards - mobile */}
-          <div className="md:hidden divide-y divide-[#f2f4f7]">
-            {items.map((a) => (
-              <div key={a.id} className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="text-sm font-medium text-[#495057]">{a.name}</span>
-                  <button
-                    onClick={() => handleDelete(a.id!)}
-                    className="text-xs text-[#f06548] px-2 py-1 hover:bg-[#f06548]/10 rounded transition-colors"
-                  >
-                    删除
-                  </button>
+          {manualItems.length > 0 && (
+            <div className="md:hidden divide-y divide-[#f2f4f7]">
+              {manualItems.map((a) => (
+                <div key={a.id} className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-[#495057]">{a.name}</span>
+                    </div>
+                    <button
+                      onClick={() => handleDelete(a.id!)}
+                      className="text-xs text-[#f06548] px-2 py-1 hover:bg-[#f06548]/10 rounded transition-colors"
+                    >
+                      删除
+                    </button>
+                  </div>
+                  {a.tech_stack && <div className="mb-2">{renderTechStack(a.tech_stack)}</div>}
+                  <div className="flex flex-wrap gap-2 text-xs text-[#878a99] font-mono">
+                    {a.path && <span className="bg-[#f3f6f9] px-2 py-0.5 rounded">{a.path}</span>}
+                    {a.port && <span className="bg-[#495057] text-white px-2 py-0.5 rounded">:{a.port}</span>}
+                  </div>
                 </div>
-                {a.tech_stack && <div className="mb-2">{renderTechStack(a.tech_stack)}</div>}
-                <div className="flex flex-wrap gap-2 text-xs text-[#878a99] font-mono">
-                  {a.path && <span className="bg-[#f3f6f9] px-2 py-0.5 rounded">{a.path}</span>}
-                  {a.port && <span className="bg-[#495057] text-white px-2 py-0.5 rounded">:{a.port}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+
         </div>
-      ))}
+        )
+      })}
 
       {/* Empty state */}
-      {assets.length === 0 && (
+      {allServerIds.length === 0 && (
         <div className="bg-white rounded-[10px] shadow-[0_1px_2px_rgba(56,65,74,0.15)] p-16 text-center">
           <span className="material-symbols-outlined text-4xl text-[#ced4da] mb-4 block">inventory_2</span>
           <p className="text-[#495057] font-medium mb-1">暂无资产信息</p>
@@ -297,7 +317,7 @@ export default function Assets() {
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[#f7b84b]" />
-            <span>服务器 <span className="font-semibold text-[#495057]">{Object.keys(grouped).length}</span></span>
+            <span>服务器 <span className="font-semibold text-[#495057]">{allServerIds.length}</span></span>
           </div>
         </div>
       )}
