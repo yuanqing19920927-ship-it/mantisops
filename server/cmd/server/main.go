@@ -195,8 +195,8 @@ func main() {
 	}
 
 	permCache := api.NewPermissionCache(userStore, serverStore)
-	_ = permCache // TODO: will be used by UserHandler and resource filtering
 	authHandler := api.NewAuthHandler(userStore, cfg.Auth.JWTSecret, tvCache)
+	userHandler := api.NewUserHandler(userStore, tvCache, permCache, hub)
 
 	// 15. Database (RDS) - reads from CloudStore
 	dbHandler := api.NewDatabaseHandler(cloudStore, vmStore)
@@ -244,6 +244,8 @@ func main() {
 		LogHandler:           logHandler,
 		LogManager:           logMgr,
 		SettingsHandler:      settingsHandler,
+		UserHandler:          userHandler,
+		PermissionCache:      permCache,
 	})
 	log.Printf("HTTP server on %s, gRPC on %s", cfg.Server.HTTPAddr, cfg.Server.GRPCAddr)
 	if err := router.Run(cfg.Server.HTTPAddr); err != nil {
