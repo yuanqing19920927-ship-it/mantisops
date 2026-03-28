@@ -1,7 +1,7 @@
 # MantisOps NAS 监控模块设计文档
 
 > 日期：2026-03-29
-> 状态：已确认（rev.2 — 修复审查问题）
+> 状态：已确认（rev.3 — 补充实现细节）
 
 ## 一、架构总览
 
@@ -134,7 +134,6 @@ server/internal/api/nas_handler.go         # HTTP API handler
 type NasCollector struct {
     store      *store.NasStore
     credStore  *store.CredentialStore
-    crypto     *crypto.AES
     vm         *VictoriaMetrics
     hub        *ws.Hub
     cache      map[int64]*NasMetricsSnapshot  // 最新指标缓存
@@ -427,15 +426,16 @@ web/src/pages/Settings/index.tsx         # 新增 NAS 设备管理区块
 1. **新增 `NasMetricsProvider` 接口**：由 `NasCollector` 实现，返回 `map[int64]*NasMetricsSnapshot`（所有 NAS 设备的最新指标）
 2. **新增 `evaluateNas()` 方法**：在 `AlertEngine` 的评估循环中，`evaluate()` 之后调用 `evaluateNas()`，遍历所有 NAS 设备，对每台设备评估所有 `nas_*` 类型的规则
 3. **alert_rules 表**：`type` 字段使用 `nas_` 前缀区分（如 `nas_raid_degraded`），`target_id` 格式为 `nas:{id}`（如 `nas:1`）
-4. **cleanupGoneTargets**：新增 NAS 设备清理逻辑，删除 NAS 设备时清理关联的 firing 事件
-5. **告警规则 UI**：目标类型下拉新增 `nas` 选项，选中后 target 列表展示 NAS 设备而非服务器
+4. **cleanupGoneTargets**：现有 `isTargetPresent` 使用 `strings.SplitN(key, ":", 3)` 解析 state key，会将 `parts[1]` 当作 hostID 查找。NAS 的 state key 为 `ruleID:nas:1`，需要在 `isTargetPresent` 中增加分支：当 `parts[1] == "nas"` 时，从 `NasMetricsProvider` 获取活跃 NAS ID 列表进行存活判断，而非走服务器分支
+5. **评估频率说明**：告警引擎 30 秒评估一次，NAS 默认 60 秒采集一次。`evaluateNas()` 应检查缓存指标的时间戳，若与上次评估相同则跳过，避免对同一份数据重复计算 `consecutiveHits`
+6. **告警规则 UI**：目标类型下拉新增 `nas` 选项，选中后 target 列表展示 NAS 设备而非服务器
 
 ## 七、现有代码改造
 
 | 改造项 | 影响范围 |
 |--------|---------|
 | SQLite 建表 | store/sqlite.go 版本迁移新增 nas_devices 表 |
-| 凭据引用计数 | credential_store.go 的 `List()` 和 `Delete()` SQL 需加入 `nas_devices` 表的引用计数，否则被 NAS 引用的凭据会显示 used_by=0 且可被删除 |
+| 凭据引用计数 | credential_store.go：`List()` 的 `used_by` 子查询和 `Delete()` 的引用检查 SQL 都需加入 `(SELECT COUNT(*) FROM nas_devices WHERE credential_id = c.id)`，两处都要改 |
 | 路由注册 | router.go 新增 /nas-devices/* 路由 |
 | main.go 初始化 | 创建 NasCollector，注入依赖 |
 | 告警引擎 | alert/engine.go 新增 evaluateNas() + NasMetricsProvider 接口 + cleanupGoneTargets NAS 分支 |
@@ -443,7 +443,7 @@ web/src/pages/Settings/index.tsx         # 新增 NAS 设备管理区块
 | 侧边栏 | Sidebar.tsx 新增菜单项 |
 | WebSocket | hub.go 新增 nas_metrics/nas_status 广播，useWebSocket.ts 新增处理 |
 | 设置页 | Settings/index.tsx 新增 NAS 设备管理区块 |
-| 审计中间件 | logging/middleware.go 新增 NAS 相关路由的审计映射 |
+| 审计中间件 | logging/middleware.go `auditRoutes` 新增：`POST /nas-devices` → create/nas_device，`PUT /nas-devices/` → update/nas_device，`DELETE /nas-devices/` → delete/nas_device，`POST /nas-devices/.../test` → test/nas_device |
 
 ## 八、不做的事（YAGNI）
 
