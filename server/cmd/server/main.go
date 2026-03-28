@@ -118,6 +118,11 @@ func main() {
 	defer prober.Stop()
 	probeHandler := api.NewProbeHandler(probeStore, prober)
 
+	// Scan
+	scanTemplateStore := store.NewScanTemplateStore(db)
+	scanner := probe.NewScanner(probeStore, scanTemplateStore, hub)
+	scanHandler := api.NewScanHandler(scanTemplateStore, serverStore, scanner)
+
 	// NAS Collector
 	nasCollector := collector.NewNasCollector(nasStore, credentialStore, vmStore, hub)
 	nasCollector.Start()
@@ -130,9 +135,20 @@ func main() {
 	defer alerter.Stop()
 	alertHandler := api.NewAlertHandler(alertStore, alerter)
 
-	// 11. Asset
+	// Pre-load firing alert targets into Hub for WS permission filtering
+	if targets, err := alertStore.ListFiringAlertTargets(); err == nil && len(targets) > 0 {
+		m := make(map[int]ws.AlertTarget, len(targets))
+		for _, t := range targets {
+			m[t.EventID] = ws.AlertTarget{RuleType: t.RuleType, TargetID: t.TargetID}
+		}
+		hub.LoadAlertTargets(m)
+		log.Printf("loaded %d firing alert targets into Hub", len(targets))
+	}
+
+	// 11. Asset + Discovered Services
 	assetStore := store.NewAssetStore(db)
-	assetHandler := api.NewAssetHandler(assetStore)
+	discoveredServiceStore := store.NewDiscoveredServiceStore(db)
+	assetHandler := api.NewAssetHandler(assetStore, discoveredServiceStore)
 
 	// 12. Aliyun Cloud Collector
 	var metricsProvider api.MetricsProvider
@@ -205,7 +221,7 @@ func main() {
 	billingHandler := api.NewBillingHandler(cloudStore, credentialStore, cfg.Aliyun)
 
 	// 17. Groups
-	groupHandler := api.NewGroupHandler(groupStore, serverStore)
+	groupHandler := api.NewGroupHandler(groupStore, serverStore, permCache)
 
 	// 18. New handlers
 	credentialHandler := api.NewCredentialHandler(credentialStore)
@@ -243,6 +259,7 @@ func main() {
 		NasHandler:           nasHandler,
 		LogHandler:           logHandler,
 		LogManager:           logMgr,
+		ScanHandler:          scanHandler,
 		SettingsHandler:      settingsHandler,
 		UserHandler:          userHandler,
 		PermissionCache:      permCache,
