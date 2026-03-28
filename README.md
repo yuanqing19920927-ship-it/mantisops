@@ -13,7 +13,9 @@
 - **容器监控** — Docker 容器状态、CPU/内存使用
 - **阿里云集成** — ECS 云监控（无需部署 Agent）+ RDS 数据库监控
 - **端口探测** — TCP/HTTP/HTTPS 可用性检测 + SSL 证书到期监控
-- **告警引擎** — 10 种告警类型 + 钉钉/Webhook 通知
+- **NAS 监控** — 群晖/飞牛 NAS 设备监控（RAID、S.M.A.R.T.、存储卷、UPS），SSH 采集
+- **告警引擎** — 16 种告警类型（含 6 种 NAS 告警）+ 钉钉/Webhook 通知
+- **多用户权限** — admin/operator/viewer 三级角色 + 资源级权限（服务器分组/单资源）+ 即时踢下线
 - **资产台账** — 服务器资产信息管理
 - **接入管理** — SSH 一键部署 Agent + 阿里云账号自动发现 ECS/RDS
 - **历史趋势** — 基于 VictoriaMetrics 的时序数据存储与查询
@@ -30,6 +32,7 @@
 Go Server(:3100 HTTP + :3101 gRPC)
   ├── Agent(gRPC) → 采集本机/远程服务器指标
   ├── AliyunCollector → 阿里云 ECS/RDS API 采集
+  ├── NasCollector(SSH) → 群晖/飞牛 NAS 指标采集
   ├── ProbeEngine → 端口/HTTP 探测
   ├── AlertEngine → 告警规则引擎
   └── SQLite → 配置与元数据存储
@@ -150,7 +153,7 @@ mantisops/
 │   │   ├── api/              # HTTP API + WebSocket
 │   │   ├── alert/            # 告警引擎
 │   │   ├── cloud/            # 云账号管理（发现/同步）
-│   │   ├── collector/        # 阿里云指标采集
+│   │   ├── collector/        # 阿里云 + NAS 指标采集
 │   │   ├── config/           # 配置加载
 │   │   ├── crypto/           # AES-256-GCM 凭据加密
 │   │   ├── deployer/         # SSH Agent 部署器
