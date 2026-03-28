@@ -104,6 +104,40 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* AI Analysis Summary — full width */}
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-[var(--color-primary)]/10 flex items-center justify-center flex-shrink-0">
+              <span className="material-symbols-outlined text-[var(--color-primary)] text-lg">analytics</span>
+            </div>
+            {aiReport ? (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-semibold text-on-surface">{aiReport.title}</h4>
+                  <span className="text-[11px] text-on-surface-variant/60">
+                    {new Date(aiReport.created_at).toLocaleDateString('zh-CN')}
+                  </span>
+                </div>
+                <p className="text-xs text-on-surface-variant leading-relaxed mt-1 line-clamp-1">{aiReport.summary}</p>
+              </div>
+            ) : (
+              <div>
+                <h4 className="text-sm font-semibold text-on-surface">AI 分析</h4>
+                <p className="text-xs text-on-surface-variant mt-0.5">暂无报告，在设置中配置 AI 提供商后即可生成</p>
+              </div>
+            )}
+          </div>
+          <Link
+            to={aiReport ? `/ai-reports/${aiReport.id}` : '/ai-reports'}
+            className="flex-shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:text-primary-container transition-colors ml-4"
+          >
+            {aiReport ? '查看报告' : '全部报告'}
+            <span className="material-symbols-outlined text-xs">arrow_forward</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Top Stats Row — 4 cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
 
@@ -410,42 +444,6 @@ export default function Dashboard() {
               <div className="text-sm py-8 text-center text-on-surface-variant px-5 pb-5">
                 暂无探测规则，
                 <Link to="/probes" className="text-primary hover:underline">去添加</Link>
-              </div>
-            )}
-          </div>
-
-          {/* AI Analysis Summary */}
-          <div className="glass-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-[var(--color-primary)]/10 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[var(--color-primary)] text-base">analytics</span>
-                </div>
-                <h4 className="text-sm font-semibold text-on-surface">AI 分析</h4>
-              </div>
-              <Link
-                to="/ai-reports"
-                className="text-xs text-primary hover:text-primary-container transition-colors"
-              >
-                全部报告 &rarr;
-              </Link>
-            </div>
-            {aiReport ? (
-              <div>
-                <p className="text-sm font-medium text-on-surface mb-1 line-clamp-1">{aiReport.title}</p>
-                <p className="text-xs text-on-surface-variant leading-relaxed line-clamp-2">{aiReport.summary}</p>
-                <Link
-                  to={`/ai-reports/${aiReport.id}`}
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary-container mt-2 transition-colors"
-                >
-                  查看完整报告
-                  <span className="material-symbols-outlined text-xs">arrow_forward</span>
-                </Link>
-              </div>
-            ) : (
-              <div className="text-center py-3">
-                <p className="text-xs text-on-surface-variant">暂无 AI 报告</p>
-                <p className="text-[11px] text-on-surface-variant/60 mt-1">在设置中配置 AI 提供商后即可生成</p>
               </div>
             )}
           </div>
