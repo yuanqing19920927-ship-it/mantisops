@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 export default function Login() {
+  const existingToken = useAuthStore((s) => s.token)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -13,6 +14,8 @@ export default function Login() {
   const { platformName, platformSubtitle, logoUrl, fetchSettings } = useSettingsStore()
 
   useEffect(() => { fetchSettings() }, [fetchSettings])
+
+  if (existingToken) return <Navigate to="/" replace />
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

@@ -46,7 +46,14 @@ func NewProbeHandler(s *store.ProbeStore, p *probe.Prober, pc *PermissionCache) 
 }
 
 func (h *ProbeHandler) List(c *gin.Context) {
-	rules, err := h.store.List()
+	var rules []model.ProbeRule
+	var err error
+	if sidStr := c.Query("server_id"); sidStr != "" {
+		sid, _ := strconv.Atoi(sidStr)
+		rules, err = h.store.ListByServerID(sid)
+	} else {
+		rules, err = h.store.List()
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -118,6 +125,24 @@ func (h *ProbeHandler) Delete(c *gin.Context) {
 
 func (h *ProbeHandler) Status(c *gin.Context) {
 	results := h.prober.GetAllResults()
+
+	// Filter by server_id if provided
+	if sidStr := c.Query("server_id"); sidStr != "" {
+		sid, _ := strconv.Atoi(sidStr)
+		rules, _ := h.store.ListByServerID(sid)
+		ruleIDs := make(map[int]bool, len(rules))
+		for _, r := range rules {
+			ruleIDs[r.ID] = true
+		}
+		filtered := results[:0]
+		for _, r := range results {
+			if ruleIDs[r.RuleID] {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
+
 	if ps := GetPermissionSet(c, h.permCache); ps != nil {
 		filtered := results[:0]
 		for _, r := range results {

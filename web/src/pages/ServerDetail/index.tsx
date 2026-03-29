@@ -4,6 +4,7 @@ import { useServerStore } from '../../stores/serverStore'
 import { getServer, updateServerName, getAssets, type AssetInfo } from '../../api/client'
 import api from '../../api/client'
 import { HistoryChart } from '../../components/HistoryChart'
+import { ProbeSection } from './ProbeSection'
 import type { Server } from '../../types'
 import { formatBytes, formatBytesPS, timeSince } from '../../utils/format'
 
@@ -29,6 +30,7 @@ export default function ServerDetail() {
   const [showConfig, setShowConfig] = useState(false)
   const [cfgDocker, setCfgDocker] = useState(false)
   const [cfgGPU, setCfgGPU] = useState(false)
+  const [cfgProbeAutoScan, setCfgProbeAutoScan] = useState(false)
   const [cfgSaving, setCfgSaving] = useState(false)
   const [cfgSaved, setCfgSaved] = useState(false)
 
@@ -231,6 +233,7 @@ export default function ServerDetail() {
               onClick={() => {
                 setCfgDocker(server.collect_docker ?? (metrics?.containers !== undefined))
                 setCfgGPU(server.collect_gpu ?? !!server.gpu_model)
+                setCfgProbeAutoScan(server.probe_auto_scan ?? false)
                 setCfgSaved(false)
                 setShowConfig(true)
               }}
@@ -282,6 +285,18 @@ export default function ServerDetail() {
                 </button>
               </div>
 
+              {/* Probe auto-scan toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[13px] font-medium text-[#495057]">端口自动检测</div>
+                  <div className="text-[11px] text-[#878a99] mt-0.5">自动扫描服务器开放端口并创建探测规则</div>
+                </div>
+                <button onClick={() => setCfgProbeAutoScan(!cfgProbeAutoScan)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${cfgProbeAutoScan ? 'bg-[#2ca07a]' : 'bg-[#ced4da]'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${cfgProbeAutoScan ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+
               {/* Status info */}
               <div className="bg-[#f8f9fa] rounded-lg p-3 text-[11px] text-[#878a99] space-y-1">
                 <div className="flex items-center gap-2">
@@ -317,10 +332,10 @@ export default function ServerDetail() {
                   onClick={async () => {
                     setCfgSaving(true)
                     try {
-                      await api.put(`/servers/${id}/config`, { collect_docker: cfgDocker, collect_gpu: cfgGPU })
+                      await api.put(`/servers/${id}/config`, { collect_docker: cfgDocker, collect_gpu: cfgGPU, probe_auto_scan: cfgProbeAutoScan })
                       setCfgSaved(true)
                       // Update local server state
-                      setServer({ ...server, collect_docker: cfgDocker, collect_gpu: cfgGPU })
+                      setServer({ ...server, collect_docker: cfgDocker, collect_gpu: cfgGPU, probe_auto_scan: cfgProbeAutoScan })
                     } catch (err) {
                       console.error('[config] save:', err)
                     }
@@ -619,6 +634,13 @@ export default function ServerDetail() {
           </div>
         </div>
       )}
+
+      {/* ── 端口检测 ── */}
+      {server && (() => {
+        let ip = ''
+        try { ip = JSON.parse(server.ip_addresses || '[]')[0] || '' } catch { /* */ }
+        return <ProbeSection serverId={server.id} serverIp={ip} />
+      })()}
 
       {/* ── 历史趋势 ── */}
       <div

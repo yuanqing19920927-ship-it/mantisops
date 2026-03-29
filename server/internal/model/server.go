@@ -26,6 +26,7 @@ type Server struct {
 	GroupID        *int      `json:"group_id"`
 	CollectDocker  *bool     `json:"collect_docker"`
 	CollectGPU     *bool     `json:"collect_gpu"`
+	ProbeAutoScan  *bool     `json:"probe_auto_scan"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }

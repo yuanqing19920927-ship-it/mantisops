@@ -20,13 +20,11 @@ func wrapData(data string) string {
 	return dataDelimiterStart + data + dataDelimiterEnd
 }
 
-// DailyReportPrompt returns a system prompt for generating a daily ops report.
-func DailyReportPrompt(data string) string {
-	return fmt.Sprintf(`%s
+// ---------------------------------------------------------------------------
+// Chapter definitions per report type
+// ---------------------------------------------------------------------------
 
-%s
-
-请生成【日报】，包含以下章节：
+const dailyChapters = `请生成【日报】，包含以下章节：
 
 # 一、整体概况
 - 健康评分（0-100）
@@ -52,17 +50,9 @@ func DailyReportPrompt(data string) string {
 # 六、AI 洞察与建议
 - 异常模式识别（是否存在关联性异常）
 - 性能优化建议
-- 潜在风险预警
-%s`, rolePrefix, baseReportInstructions, wrapData(data))
-}
+- 潜在风险预警`
 
-// WeeklyReportPrompt returns a system prompt for generating a weekly ops report.
-func WeeklyReportPrompt(data string) string {
-	return fmt.Sprintf(`%s
-
-%s
-
-请生成【周报】，包含日报的所有章节（一至六），并额外增加以下内容：
+const weeklyChapters = `请生成【周报】，包含日报的所有章节（一至六），并额外增加以下内容：
 
 # 七、本周 vs 上周对比
 - 关键指标对比（告警数、平均负载、磁盘使用增长等）
@@ -78,17 +68,9 @@ func WeeklyReportPrompt(data string) string {
 
 # 十、容量变化分析
 - 磁盘、内存等资源的周度变化趋势
-- 资源使用率预警
-%s`, rolePrefix, baseReportInstructions, wrapData(data))
-}
+- 资源使用率预警`
 
-// MonthlyReportPrompt returns a system prompt for generating a monthly ops report.
-func MonthlyReportPrompt(data string) string {
-	return fmt.Sprintf(`%s
-
-%s
-
-请生成【月报】，包含日报的所有章节（一至六），并额外增加以下内容：
+const monthlyChapters = `请生成【月报】，包含日报的所有章节（一至六），并额外增加以下内容：
 
 # 七、月度趋势分析
 - 各项关键指标的月度变化趋势
@@ -111,17 +93,9 @@ func MonthlyReportPrompt(data string) string {
 # 十一、优化建议
 - 基础设施优化方向
 - 成本优化建议
-- 安全加固建议
-%s`, rolePrefix, baseReportInstructions, wrapData(data))
-}
+- 安全加固建议`
 
-// QuarterlyReportPrompt returns a system prompt for generating a quarterly ops report.
-func QuarterlyReportPrompt(data string) string {
-	return fmt.Sprintf(`%s
-
-%s
-
-请生成【季报】，包含日报的所有章节（一至六），并额外增加以下内容：
+const quarterlyChapters = `请生成【季报】，包含日报的所有章节（一至六），并额外增加以下内容：
 
 # 七、三个月趋势对比
 - 各月关键指标对比表格
@@ -140,17 +114,9 @@ func QuarterlyReportPrompt(data string) string {
 # 十、下季度预测与规划
 - 容量需求预测
 - 预计需要的基础设施调整
-- 风险预判和预防建议
-%s`, rolePrefix, baseReportInstructions, wrapData(data))
-}
+- 风险预判和预防建议`
 
-// YearlyReportPrompt returns a system prompt for generating a yearly ops report.
-func YearlyReportPrompt(data string) string {
-	return fmt.Sprintf(`%s
-
-%s
-
-请生成【年报】，包含日报的所有章节（一至六），并额外增加以下内容：
+const yearlyChapters = `请生成【年报】，包含日报的所有章节（一至六），并额外增加以下内容：
 
 # 七、全年回顾
 - 12 个月关键指标趋势图表（用文字描述趋势）
@@ -171,8 +137,52 @@ func YearlyReportPrompt(data string) string {
 - 基于全年趋势的资源需求预测
 - 预算估算建议
 - 技术债务清理计划
-- 架构优化路线图
-%s`, rolePrefix, baseReportInstructions, wrapData(data))
+- 架构优化路线图`
+
+// ---------------------------------------------------------------------------
+// Prompt constructors
+// ---------------------------------------------------------------------------
+
+func buildPrompt(chapters, data string) string {
+	return fmt.Sprintf("%s\n\n%s\n\n%s%s", rolePrefix, baseReportInstructions, chapters, wrapData(data))
+}
+
+func DailyReportPrompt(data string) string     { return buildPrompt(dailyChapters, data) }
+func WeeklyReportPrompt(data string) string    { return buildPrompt(weeklyChapters, data) }
+func MonthlyReportPrompt(data string) string   { return buildPrompt(monthlyChapters, data) }
+func QuarterlyReportPrompt(data string) string { return buildPrompt(quarterlyChapters, data) }
+func YearlyReportPrompt(data string) string    { return buildPrompt(yearlyChapters, data) }
+
+// DefaultPromptTemplate returns the built-in prompt template (without data) for a report type.
+func DefaultPromptTemplate(reportType string) string {
+	chapters := dailyChapters
+	switch reportType {
+	case "weekly":
+		chapters = weeklyChapters
+	case "monthly":
+		chapters = monthlyChapters
+	case "quarterly":
+		chapters = quarterlyChapters
+	case "yearly":
+		chapters = yearlyChapters
+	}
+	return fmt.Sprintf("%s\n\n%s\n\n%s", rolePrefix, baseReportInstructions, chapters)
+}
+
+// ReportPromptForType dispatches to the appropriate prompt function based on report type.
+func ReportPromptForType(reportType string, data string) string {
+	switch reportType {
+	case "weekly":
+		return WeeklyReportPrompt(data)
+	case "monthly":
+		return MonthlyReportPrompt(data)
+	case "quarterly":
+		return QuarterlyReportPrompt(data)
+	case "yearly":
+		return YearlyReportPrompt(data)
+	default:
+		return DailyReportPrompt(data)
+	}
 }
 
 // ChatSystemPrompt returns the system prompt for chat conversations.
@@ -206,22 +216,4 @@ func GenerateTitlePrompt(userMsg, assistantMsg string) string {
 
 助手回复：
 %s`, userMsg, assistantMsg)
-}
-
-// ReportPromptForType dispatches to the appropriate prompt function based on report type.
-func ReportPromptForType(reportType string, data string) string {
-	switch reportType {
-	case "daily":
-		return DailyReportPrompt(data)
-	case "weekly":
-		return WeeklyReportPrompt(data)
-	case "monthly":
-		return MonthlyReportPrompt(data)
-	case "quarterly":
-		return QuarterlyReportPrompt(data)
-	case "yearly":
-		return YearlyReportPrompt(data)
-	default:
-		return DailyReportPrompt(data)
-	}
 }

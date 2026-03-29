@@ -242,24 +242,21 @@ func main() {
 	settingsStore := store.NewSettingsStore(db)
 	settingsHandler := api.NewSettingsHandler(settingsStore)
 
-	// 21. AI system — settings API always available, report/chat only when enabled
+	// 21. AI system — always initialized, provider config comes from DB settings
 	aiStore := store.NewAIStore(db)
-	aiHandler := api.NewAIHandler(aiStore, nil, nil, nil, nil, settingsStore, masterKey)
-	if cfg.AI.Enabled {
-		providerMgr := ai.NewProviderManager(&cfg.AI, settingsStore, masterKey)
-		dataCollector := ai.NewDataCollector(cfg.Victoria.URL, serverStore, alertStore, cfg.AI.Timezone)
-		reporter := ai.NewReporter(aiStore, dataCollector, providerMgr, hub, cfg.AI)
-		chatEngine := ai.NewChatEngine(aiStore, providerMgr, dataCollector, hub, cfg.AI.Chat)
-		scheduler := ai.NewScheduler(aiStore, reporter, cfg.AI.Timezone)
+	providerMgr := ai.NewProviderManager(&cfg.AI, settingsStore, masterKey)
+	dataCollector := ai.NewDataCollector(cfg.Victoria.URL, serverStore, alertStore, cfg.AI.Timezone)
+	reporter := ai.NewReporter(aiStore, dataCollector, providerMgr, hub, settingsStore, cfg.AI)
+	chatEngine := ai.NewChatEngine(aiStore, providerMgr, dataCollector, hub, cfg.AI.Chat)
+	scheduler := ai.NewScheduler(aiStore, reporter, cfg.AI.Timezone)
 
-		hub.SetOnAIStreamSubscribe(chatEngine.OnStreamSubscribe)
+	hub.SetOnAIStreamSubscribe(chatEngine.OnStreamSubscribe)
 
-		scheduler.Start()
-		defer scheduler.Stop()
+	scheduler.Start()
+	defer scheduler.Stop()
 
-		aiHandler = api.NewAIHandler(aiStore, reporter, chatEngine, providerMgr, scheduler, settingsStore, masterKey)
-		log.Println("AI analysis module enabled")
-	}
+	aiHandler := api.NewAIHandler(aiStore, reporter, chatEngine, providerMgr, scheduler, settingsStore, masterKey)
+	log.Println("AI analysis module initialized")
 
 	// 22. HTTP API
 	router := api.SetupRouter(api.RouterDeps{

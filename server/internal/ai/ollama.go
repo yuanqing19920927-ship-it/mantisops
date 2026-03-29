@@ -26,8 +26,8 @@ func NewOllamaProvider(host string, cfg config.OllamaConfig) *OllamaProvider {
 	return &OllamaProvider{
 		host:   host,
 		cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
-		stream: &http.Client{Timeout: 5 * time.Minute},
+		client: &http.Client{Timeout: 5 * time.Minute},
+		stream: &http.Client{Timeout: 10 * time.Minute},
 	}
 }
 

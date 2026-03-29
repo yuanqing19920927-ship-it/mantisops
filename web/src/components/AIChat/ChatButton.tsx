@@ -1,8 +1,13 @@
 import { useAIStore } from '../../stores/aiStore'
+import { useAuthStore } from '../../stores/authStore'
 import { ChatPanel } from './ChatPanel'
 
 export function ChatButton() {
   const { chatOpen, setChatOpen } = useAIStore()
+  const role = useAuthStore((s) => s.role)
+
+  // Only operator and admin can use AI chat
+  if (role !== 'admin' && role !== 'operator') return null
 
   return (
     <>

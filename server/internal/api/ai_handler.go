@@ -517,6 +517,11 @@ func (h *AIHandler) UpdateAISettings(c *gin.Context) {
 		}
 	}
 
+	// Reload providers so changes take effect immediately
+	if h.provider != nil {
+		h.provider.Reload()
+	}
+
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -650,6 +655,50 @@ func (h *AIHandler) UpdateSchedule(c *gin.Context) {
 	if err := h.store.UpdateSchedule(id, enabled, cronExpr); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ---------------------------------------------------------------------------
+// Prompt template endpoints
+// ---------------------------------------------------------------------------
+
+// promptTypes lists all configurable prompt template types.
+var promptTypes = []string{"daily", "weekly", "monthly", "quarterly", "yearly"}
+
+// GetPrompts returns custom prompt templates and built-in defaults from DB settings.
+func (h *AIHandler) GetPrompts(c *gin.Context) {
+	custom := make(map[string]string)
+	defaults := make(map[string]string)
+	for _, t := range promptTypes {
+		key := "ai.prompt." + t
+		if v, err := h.settings.Get(key); err == nil {
+			custom[t] = v
+		}
+		defaults[t] = ai.DefaultPromptTemplate(t)
+	}
+	c.JSON(http.StatusOK, gin.H{"custom": custom, "defaults": defaults})
+}
+
+// UpdatePrompts saves custom prompt templates to DB settings.
+func (h *AIHandler) UpdatePrompts(c *gin.Context) {
+	var req map[string]string
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	valid := make(map[string]bool)
+	for _, t := range promptTypes {
+		valid[t] = true
+	}
+	for k, v := range req {
+		if !valid[k] {
+			continue
+		}
+		if err := h.settings.Set("ai.prompt."+k, v); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

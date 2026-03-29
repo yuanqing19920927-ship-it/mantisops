@@ -109,3 +109,7 @@ export const testProvider = (data: Record<string, unknown>) => api.post('/ai/pro
 export const listSchedules = () => api.get('/ai/schedules').then(r => r.data) as Promise<AISchedule[]>
 export const updateSchedule = (id: number, data: { enabled?: boolean; cron_expr?: string }) =>
   api.put(`/ai/schedules/${id}`, data).then(r => r.data)
+
+// Prompt templates API
+export const getPrompts = () => api.get('/ai/prompts').then(r => r.data) as Promise<{ custom: Record<string, string>; defaults: Record<string, string> }>
+export const updatePrompts = (data: Record<string, string>) => api.put('/ai/prompts', data).then(r => r.data)

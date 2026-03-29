@@ -23,6 +23,7 @@ type Reporter struct {
 	collector *DataCollector
 	provider  *ProviderManager
 	hub       *ws.Hub
+	settings  *store.SettingsStore
 	cfg       config.AIConfig
 	timezone  *time.Location
 	maxTime   time.Duration
@@ -30,7 +31,7 @@ type Reporter struct {
 }
 
 // NewReporter creates a Reporter from the given dependencies and config.
-func NewReporter(aiStore *store.AIStore, collector *DataCollector, provider *ProviderManager, hub *ws.Hub, cfg config.AIConfig) *Reporter {
+func NewReporter(aiStore *store.AIStore, collector *DataCollector, provider *ProviderManager, hub *ws.Hub, settings *store.SettingsStore, cfg config.AIConfig) *Reporter {
 	tz, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		tz, _ = time.LoadLocation("Asia/Shanghai")
@@ -44,6 +45,7 @@ func NewReporter(aiStore *store.AIStore, collector *DataCollector, provider *Pro
 		collector: collector,
 		provider:  provider,
 		hub:       hub,
+		settings:  settings,
 		cfg:       cfg,
 		timezone:  tz,
 		maxTime:   maxTime,
@@ -112,9 +114,17 @@ func (r *Reporter) Generate(ctx context.Context, reportType string, periodStart,
 		return reportID, fmt.Errorf("collect data: %w", err)
 	}
 
-	// Format data and build prompt.
+	// Format data and build prompt (use custom template from DB if available).
 	dataText := r.collector.FormatAsText(data)
-	prompt := ReportPromptForType(reportType, dataText)
+	var prompt string
+	if r.settings != nil {
+		if custom, err := r.settings.Get("ai.prompt." + reportType); err == nil && custom != "" {
+			prompt = custom + wrapData(dataText)
+		}
+	}
+	if prompt == "" {
+		prompt = ReportPromptForType(reportType, dataText)
+	}
 
 	// Resolve provider and model.
 	prov := r.provider.Active()
@@ -123,7 +133,7 @@ func (r *Reporter) Generate(ctx context.Context, reportType string, periodStart,
 		return reportID, fmt.Errorf("no active AI provider configured")
 	}
 
-	model := r.reportModelForProvider(prov.Name())
+	model := r.provider.ReportModel()
 
 	// Call LLM with timeout.
 	llmCtx, cancel := context.WithTimeout(ctx, r.maxTime)

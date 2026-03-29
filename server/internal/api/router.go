@@ -113,27 +113,17 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 			v1.GET("/nas-devices/:id/metrics", deps.NasHandler.GetMetrics)
 		}
 
-		// AI analysis module
+		// AI analysis module (read-only for all authenticated users)
 		if deps.AIHandler != nil {
 			v1.GET("/ai/reports", deps.AIHandler.ListReports)
 			v1.GET("/ai/reports/latest", deps.AIHandler.LatestReport)
 			v1.GET("/ai/reports/:id", deps.AIHandler.GetReport)
-			v1.POST("/ai/reports/generate", deps.AIHandler.GenerateReport)
-			v1.DELETE("/ai/reports/:id", deps.AIHandler.DeleteReport)
 			v1.GET("/ai/reports/:id/download", deps.AIHandler.DownloadReport)
-
 			v1.GET("/ai/conversations", deps.AIHandler.ListConversations)
-			v1.POST("/ai/conversations", deps.AIHandler.CreateConversation)
 			v1.GET("/ai/conversations/:id", deps.AIHandler.GetConversation)
-			v1.DELETE("/ai/conversations/:id", deps.AIHandler.DeleteConversation)
-			v1.POST("/ai/conversations/:id/messages", deps.AIHandler.SendMessage)
-
 			v1.GET("/ai/settings", deps.AIHandler.GetAISettings)
-			v1.PUT("/ai/settings", deps.AIHandler.UpdateAISettings)
 			v1.GET("/ai/providers", deps.AIHandler.ListProviders)
-			v1.POST("/ai/providers/test", deps.AIHandler.TestProvider)
 			v1.GET("/ai/schedules", deps.AIHandler.ListSchedules)
-			v1.PUT("/ai/schedules/:id", deps.AIHandler.UpdateSchedule)
 		}
 
 		// --- Operator level ---
@@ -166,6 +156,15 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 			op.PUT("/alerts/channels/:id", deps.AlertHandler.UpdateChannel)
 			op.DELETE("/alerts/channels/:id", deps.AlertHandler.DeleteChannel)
 			op.POST("/alerts/channels/:id/test", deps.AlertHandler.TestChannel)
+
+			// AI write operations (operator+)
+			if deps.AIHandler != nil {
+				op.POST("/ai/reports/generate", deps.AIHandler.GenerateReport)
+				op.DELETE("/ai/reports/:id", deps.AIHandler.DeleteReport)
+				op.POST("/ai/conversations", deps.AIHandler.CreateConversation)
+				op.DELETE("/ai/conversations/:id", deps.AIHandler.DeleteConversation)
+				op.POST("/ai/conversations/:id/messages", deps.AIHandler.SendMessage)
+			}
 		}
 
 		// --- Admin level ---
@@ -187,6 +186,15 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 			// Platform settings
 			if deps.SettingsHandler != nil {
 				adm.PUT("/settings", deps.SettingsHandler.Update)
+			}
+
+			// AI admin operations (settings, schedules, provider test)
+			if deps.AIHandler != nil {
+				adm.PUT("/ai/settings", deps.AIHandler.UpdateAISettings)
+				adm.PUT("/ai/schedules/:id", deps.AIHandler.UpdateSchedule)
+				adm.POST("/ai/providers/test", deps.AIHandler.TestProvider)
+				adm.GET("/ai/prompts", deps.AIHandler.GetPrompts)
+				adm.PUT("/ai/prompts", deps.AIHandler.UpdatePrompts)
 			}
 
 			// Audit logs (admin only)

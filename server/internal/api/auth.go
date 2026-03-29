@@ -86,8 +86,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	c.Set("audit_username", req.Username)
 
+	// Constant-time: always run bcrypt even if user doesn't exist (prevents timing enumeration)
 	user, err := h.userStore.GetByUsername(req.Username)
 	if err != nil {
+		// User not found — compare against a dummy hash to keep constant timing
+		bcrypt.CompareHashAndPassword([]byte("$2a$10$000000000000000000000uDummyHashForTimingConsistencyOnly."), []byte(req.Password))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
@@ -96,7 +99,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	if !user.Enabled {
-		c.JSON(http.StatusForbidden, gin.H{"error": "account disabled"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
 
@@ -154,19 +157,35 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	if len(req.NewPassword) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 6 characters"})
+		return
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash failed"})
 		return
 	}
 
-	h.userStore.UpdatePassword(userID, string(hash))
+	if err := h.userStore.UpdatePassword(userID, string(hash)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update password"})
+		return
+	}
 	h.userStore.IncrementTokenVersion(userID)
 	h.tvCache.Invalidate(userID)
 
 	// Re-fetch to get updated fields
-	user, _ = h.userStore.GetByID(userID)
-	token, _ := h.generateToken(user)
+	user, err = h.userStore.GetByID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh user"})
+		return
+	}
+	token, err := h.generateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":           token,
@@ -204,7 +223,7 @@ func (h *AuthHandler) JWTMiddleware() gin.HandlerFunc {
 		// Must change password interception
 		if payload.MustChangePwd {
 			path := c.Request.URL.Path
-			if !strings.HasSuffix(path, "/auth/me") && !strings.HasSuffix(path, "/auth/password") {
+			if path != "/api/v1/auth/me" && path != "/api/v1/auth/password" {
 				c.JSON(http.StatusForbidden, gin.H{"error": "must_change_password"})
 				c.Abort()
 				return

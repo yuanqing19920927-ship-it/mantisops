@@ -46,7 +46,7 @@ export async function createNasDevice(req: { name: string; nas_type: string; hos
   return data
 }
 
-export async function updateNasDevice(id: number, req: { name: string; nas_type: string; host: string; port: number; ssh_user: string; credential_id: number; collect_interval: number }): Promise<void> {
+export async function updateNasDevice(id: number, req: { name: string; nas_type: string; host: string; port: number; ssh_user: string; credential_id?: number; password?: string; collect_interval: number }): Promise<void> {
   await api.put(`/nas-devices/${id}`, req)
 }
 

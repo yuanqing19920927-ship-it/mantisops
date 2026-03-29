@@ -60,6 +60,10 @@ func (h *UserHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "role must be admin, operator, or viewer"})
 		return
 	}
+	if len(req.Password) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 6 characters"})
+		return
+	}
 
 	hash, err := HashPassword(req.Password)
 	if err != nil {
@@ -80,7 +84,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 type updateUserRequest struct {
 	DisplayName string `json:"display_name"`
 	Role        string `json:"role" binding:"required"`
-	Enabled     bool   `json:"enabled"`
+	Enabled     *bool  `json:"enabled" binding:"required"`
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
@@ -111,22 +115,27 @@ func (h *UserHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "cannot modify yourself via this endpoint"})
 		return
 	}
-	if oldUser.Role == "admin" && (req.Role != "admin" || !req.Enabled) {
-		count, _ := h.userStore.CountEnabledAdmins()
+	enabled := *req.Enabled
+	if oldUser.Role == "admin" && (req.Role != "admin" || !enabled) {
+		count, err := h.userStore.CountEnabledAdmins()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check admin count"})
+			return
+		}
 		if count <= 1 {
 			c.JSON(http.StatusConflict, gin.H{"error": "must keep at least one enabled admin"})
 			return
 		}
 	}
 
-	if err := h.userStore.Update(id, req.DisplayName, req.Role, req.Enabled); err != nil {
+	if err := h.userStore.Update(id, req.DisplayName, req.Role, enabled); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Determine if token/permission invalidation needed
 	roleChanged := oldUser.Role != req.Role
-	enabledChanged := oldUser.Enabled != req.Enabled
+	enabledChanged := oldUser.Enabled != enabled
 
 	if roleChanged || enabledChanged {
 		h.userStore.IncrementTokenVersion(id)
@@ -157,7 +166,11 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 	if user.Role == "admin" {
-		count, _ := h.userStore.CountEnabledAdmins()
+		count, err := h.userStore.CountEnabledAdmins()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check admin count"})
+			return
+		}
 		if count <= 1 {
 			c.JSON(http.StatusConflict, gin.H{"error": "must keep at least one enabled admin"})
 			return
@@ -189,6 +202,10 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 	var req resetPwdRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Password) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 6 characters"})
 		return
 	}
 

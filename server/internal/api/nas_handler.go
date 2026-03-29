@@ -120,7 +120,8 @@ func (h *NasHandler) Update(c *gin.Context) {
 		Host            string `json:"host" binding:"required"`
 		Port            int    `json:"port"`
 		SSHUser         string `json:"ssh_user"`
-		CredentialID    int    `json:"credential_id" binding:"required"`
+		CredentialID    int    `json:"credential_id"`
+		Password        string `json:"password"`
 		CollectInterval int    `json:"collect_interval"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -136,6 +137,30 @@ func (h *NasHandler) Update(c *gin.Context) {
 	}
 	if req.CollectInterval == 0 {
 		req.CollectInterval = 60
+	}
+
+	// 凭据处理：已有 credential_id 或通过密码创建/更新
+	if req.CredentialID > 0 {
+		cred, err := h.credStore.Get(req.CredentialID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "credential not found: " + err.Error()})
+			return
+		}
+		if cred.Type != "ssh_password" && cred.Type != "ssh_key" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "credential must be ssh_password or ssh_key type"})
+			return
+		}
+	} else if req.Password != "" {
+		credName := fmt.Sprintf("NAS-%s@%s", req.SSHUser, req.Host)
+		credID, err := h.credStore.Create(credName, "ssh_password", map[string]string{"password": req.Password})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "create credential: " + err.Error()})
+			return
+		}
+		req.CredentialID = credID
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "either credential_id or password is required"})
+		return
 	}
 
 	if err := h.nasStore.Update(id, req.Name, req.NasType, req.Host, req.Port, req.SSHUser, req.CredentialID, req.CollectInterval); err != nil {

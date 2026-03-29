@@ -88,17 +88,17 @@ func (s *ServerStore) GetByHostID(hostID string) (*model.Server, error) {
 		COALESCE(disk_total,0), COALESCE(gpu_model,''), COALESCE(gpu_memory,0),
 		COALESCE(boot_time,0), COALESCE(last_seen,0), COALESCE(status,'online'),
 		COALESCE(display_name,''), COALESCE(sort_order,0), group_id,
-		collect_docker, collect_gpu
+		collect_docker, collect_gpu, probe_auto_scan
 		FROM servers WHERE host_id=?`, hostID)
 	var groupID sql.NullInt64
-	var collectDocker, collectGPU sql.NullBool
+	var collectDocker, collectGPU, probeAutoScan sql.NullBool
 	err := row.Scan(
 		&srv.ID, &srv.HostID, &srv.Hostname, &srv.IPAddresses,
 		&srv.OS, &srv.Kernel, &srv.Arch, &srv.AgentVersion,
 		&srv.CPUCores, &srv.CPUModel, &srv.MemoryTotal, &srv.DiskTotal,
 		&srv.GPUModel, &srv.GPUMemory, &srv.BootTime, &srv.LastSeen,
 		&srv.Status, &srv.DisplayName, &srv.SortOrder, &groupID,
-		&collectDocker, &collectGPU)
+		&collectDocker, &collectGPU, &probeAutoScan)
 	if err != nil {
 		return nil, err
 	}
@@ -114,12 +114,16 @@ func (s *ServerStore) GetByHostID(hostID string) (*model.Server, error) {
 		v := collectGPU.Bool
 		srv.CollectGPU = &v
 	}
+	if probeAutoScan.Valid {
+		v := probeAutoScan.Bool
+		srv.ProbeAutoScan = &v
+	}
 	return &srv, nil
 }
 
-func (s *ServerStore) UpdateConfig(hostID string, collectDocker, collectGPU *bool) error {
-	_, err := s.db.Exec("UPDATE servers SET collect_docker=?, collect_gpu=?, updated_at=CURRENT_TIMESTAMP WHERE host_id=?",
-		collectDocker, collectGPU, hostID)
+func (s *ServerStore) UpdateConfig(hostID string, collectDocker, collectGPU, probeAutoScan *bool) error {
+	_, err := s.db.Exec("UPDATE servers SET collect_docker=?, collect_gpu=?, probe_auto_scan=?, updated_at=CURRENT_TIMESTAMP WHERE host_id=?",
+		collectDocker, collectGPU, probeAutoScan, hostID)
 	return err
 }
 

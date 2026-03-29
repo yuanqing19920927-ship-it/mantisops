@@ -17,6 +17,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       localStorage.removeItem('username')
+      localStorage.removeItem('role')
+      localStorage.removeItem('displayName')
+      localStorage.removeItem('mustChangePwd')
       window.location.href = '/login'
     }
     return Promise.reject(error)

@@ -110,11 +110,13 @@ export default function SystemAdmin() {
   const fetchAI = useCallback(async () => {
     try {
       const [settings, schedules] = await Promise.all([getAISettings(), listSchedules()])
-      setAiProvider(settings.active_provider || 'claude')
-      setAiApiKey(settings.api_key || '')
-      setAiBaseUrl(settings.base_url || '')
-      setAiReportModel(settings.report_model || '')
-      setAiChatModel(settings.chat_model || '')
+      const provider = settings.active_provider || 'claude'
+      setAiProvider(provider as 'claude' | 'openai' | 'ollama')
+      const provCfg = settings[provider] || {}
+      setAiApiKey(provCfg.api_key || '')
+      setAiBaseUrl(provCfg.base_url || provCfg.host || '')
+      setAiReportModel(provCfg.report_model || '')
+      setAiChatModel(provCfg.chat_model || '')
       setAiSchedules(schedules || [])
     } catch {
       // AI 未启用时 API 可能 404，使用默认值即可
@@ -125,13 +127,15 @@ export default function SystemAdmin() {
   const handleAISave = async () => {
     setAiSaving(true)
     try {
-      await updateAISettings({
-        active_provider: aiProvider,
-        api_key: aiApiKey,
-        base_url: aiBaseUrl,
-        report_model: aiReportModel,
-        chat_model: aiChatModel,
-      })
+      const payload: Record<string, unknown> = { active_provider: aiProvider }
+      if (aiProvider === 'claude') {
+        payload.claude = { api_key: aiApiKey, report_model: aiReportModel, chat_model: aiChatModel }
+      } else if (aiProvider === 'openai') {
+        payload.openai = { api_key: aiApiKey, base_url: aiBaseUrl, report_model: aiReportModel, chat_model: aiChatModel }
+      } else if (aiProvider === 'ollama') {
+        payload.ollama = { host: aiBaseUrl, report_model: aiReportModel, chat_model: aiChatModel }
+      }
+      await updateAISettings(payload)
       setAiSaved(true)
       setTimeout(() => setAiSaved(false), 2000)
     } catch (err) {

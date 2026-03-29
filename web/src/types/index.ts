@@ -28,6 +28,7 @@ export interface Server {
   group_id?: number | null
   collect_docker?: boolean | null
   collect_gpu?: boolean | null
+  probe_auto_scan?: boolean | null
 }
 
 export interface CpuMetrics {

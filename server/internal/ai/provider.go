@@ -84,6 +84,14 @@ func NewProviderManager(cfg *config.AIConfig, settings *store.SettingsStore, mas
 	return pm
 }
 
+// Reload re-reads settings from DB and re-initialises all providers.
+func (pm *ProviderManager) Reload() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.providers = make(map[string]Provider)
+	pm.initProviders()
+}
+
 // Active returns the currently active provider, or nil if none is configured.
 func (pm *ProviderManager) Active() Provider {
 	pm.mu.RLock()
@@ -131,6 +139,44 @@ func (pm *ProviderManager) List() []ProviderInfo {
 	return infos
 }
 
+// ReportModel returns the report model name for the active provider,
+// reading from DB settings first, then falling back to yaml config.
+func (pm *ProviderManager) ReportModel() string {
+	pm.mu.RLock()
+	name := pm.active
+	pm.mu.RUnlock()
+	key := fmt.Sprintf("ai.%s.report_model", name)
+	var fallback string
+	switch name {
+	case "claude":
+		fallback = pm.cfg.Claude.ReportModel
+	case "openai":
+		fallback = pm.cfg.OpenAI.ReportModel
+	case "ollama":
+		fallback = pm.cfg.Ollama.ReportModel
+	}
+	return pm.resolveSetting(key, fallback)
+}
+
+// ChatModel returns the chat model name for the active provider,
+// reading from DB settings first, then falling back to yaml config.
+func (pm *ProviderManager) ChatModel() string {
+	pm.mu.RLock()
+	name := pm.active
+	pm.mu.RUnlock()
+	key := fmt.Sprintf("ai.%s.chat_model", name)
+	var fallback string
+	switch name {
+	case "claude":
+		fallback = pm.cfg.Claude.ChatModel
+	case "openai":
+		fallback = pm.cfg.OpenAI.ChatModel
+	case "ollama":
+		fallback = pm.cfg.Ollama.ChatModel
+	}
+	return pm.resolveSetting(key, fallback)
+}
+
 // resolveAPIKey tries to load an API key from the settings store (encrypted),
 // falling back to the config value.
 func (pm *ProviderManager) resolveAPIKey(settingsKey, configValue string) string {
@@ -147,27 +193,68 @@ func (pm *ProviderManager) resolveAPIKey(settingsKey, configValue string) string
 	return configValue
 }
 
+// resolveSetting tries to load a plain-text setting from the settings store,
+// falling back to the config value.
+func (pm *ProviderManager) resolveSetting(settingsKey, configValue string) string {
+	if pm.settings != nil {
+		if v, err := pm.settings.Get(settingsKey); err == nil && v != "" {
+			return v
+		}
+	}
+	return configValue
+}
+
 // initProviders creates provider instances for all configured providers.
 func (pm *ProviderManager) initProviders() {
+	// Resolve active provider from DB, falling back to yaml config
+	if active := pm.resolveSetting("ai.active_provider", pm.cfg.ActiveProvider); active != "" {
+		pm.active = active
+	}
+
 	// Claude
 	claudeKey := pm.resolveAPIKey("ai.claude.api_key", pm.cfg.Claude.APIKey)
 	if claudeKey != "" {
-		pm.providers["claude"] = NewClaudeProvider(claudeKey, pm.cfg.Claude)
+		claudeCfg := pm.cfg.Claude
+		if m := pm.resolveSetting("ai.claude.report_model", ""); m != "" {
+			claudeCfg.ReportModel = m
+		}
+		if m := pm.resolveSetting("ai.claude.chat_model", ""); m != "" {
+			claudeCfg.ChatModel = m
+		}
+		pm.providers["claude"] = NewClaudeProvider(claudeKey, claudeCfg)
 		log.Printf("[ai] claude provider initialised")
 	}
 
 	// OpenAI
 	openaiKey := pm.resolveAPIKey("ai.openai.api_key", pm.cfg.OpenAI.APIKey)
 	if openaiKey != "" {
-		pm.providers["openai"] = NewOpenAIProvider(openaiKey, pm.cfg.OpenAI)
+		openaiCfg := pm.cfg.OpenAI
+		if u := pm.resolveSetting("ai.openai.base_url", ""); u != "" {
+			openaiCfg.BaseURL = u
+		}
+		if m := pm.resolveSetting("ai.openai.report_model", ""); m != "" {
+			openaiCfg.ReportModel = m
+		}
+		if m := pm.resolveSetting("ai.openai.chat_model", ""); m != "" {
+			openaiCfg.ChatModel = m
+		}
+		pm.providers["openai"] = NewOpenAIProvider(openaiKey, openaiCfg)
 		log.Printf("[ai] openai provider initialised")
 	}
 
 	// Ollama (no API key needed)
-	host := pm.cfg.Ollama.Host
+	host := pm.resolveSetting("ai.ollama.host", pm.cfg.Ollama.Host)
 	if host != "" {
 		host = strings.TrimRight(host, "/")
-		pm.providers["ollama"] = NewOllamaProvider(host, pm.cfg.Ollama)
-		log.Printf("[ai] ollama provider initialised")
+		ollamaCfg := pm.cfg.Ollama
+		ollamaCfg.Host = host
+		if m := pm.resolveSetting("ai.ollama.report_model", ""); m != "" {
+			ollamaCfg.ReportModel = m
+		}
+		if m := pm.resolveSetting("ai.ollama.chat_model", ""); m != "" {
+			ollamaCfg.ChatModel = m
+		}
+		pm.providers["ollama"] = NewOllamaProvider(host, ollamaCfg)
+		log.Printf("[ai] ollama provider initialised (host=%s)", host)
 	}
 }

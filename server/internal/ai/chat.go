@@ -214,6 +214,7 @@ func (e *ChatEngine) processStream(convID, assistantMsgID int64, streamID, user 
 	// Start streaming
 	ctx := context.Background()
 	chunks, err := provider.Stream(ctx, &CompletionRequest{
+		Model:    e.provider.ChatModel(),
 		Messages: messages,
 	})
 	if err != nil {

@@ -1,6 +1,6 @@
 # MantisOps
 
-轻量级智能运维平台 — 服务器监控、云资源管理、资产台账，集成 AI 日志分析与智能运维。
+轻量级智能运维平台 — 服务器监控、NAS 监控、云资源管理、AI 运维分析、多用户权限管理。
 
 ![License](https://img.shields.io/badge/license-BSL--1.1-blue)
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
@@ -12,7 +12,7 @@
 - **服务器监控** — CPU、内存、磁盘、网络、负载、GPU 实时指标 + 历史趋势，Docker/GPU 自动检测
 - **NAS 监控** — 群晖/飞牛 NAS 设备监控（RAID、S.M.A.R.T.、存储卷、UPS），SSH 采集
 - **阿里云集成** — ECS 云监控（无需部署 Agent）+ RDS 数据库监控
-- **端口探测** — TCP/HTTP/HTTPS 可用性检测 + SSL 证书到期监控 + 服务器自动扫描
+- **端口探测** — 按服务器管理探测规则，TCP/HTTP/HTTPS 可用性检测 + SSL 证书到期监控 + 自动端口检测
 - **告警引擎** — 16 种告警类型（含 NAS 告警）+ 钉钉/Webhook 通知
 - **日志中心** — 操作审计 + 结构化运行日志 + 关键字搜索 + 实时尾随 + 导出
 - **AI 分析** — 运维分析报告 + 智能对话
@@ -36,6 +36,7 @@ Go Server (HTTP + gRPC)
   ├── NasCollector(SSH) → 群晖/飞牛 NAS 指标采集
   ├── ProbeEngine       → 端口/HTTP 探测 + 自动扫描
   ├── AlertEngine       → 告警规则引擎
+  ├── AIEngine          → 运维分析报告 + 智能对话（Claude/OpenAI/Ollama）
   ├── LogManager        → 结构化日志 + 操作审计
   └── SQLite            → 配置与元数据存储
 
@@ -159,6 +160,8 @@ mantisops/
 │   │   ├── config/           # 配置加载
 │   │   ├── crypto/           # AES-256-GCM 凭据加密
 │   │   ├── deployer/         # SSH Agent 部署器
+│   │   ├── logging/          # 结构化日志 + 操作审计
+│   │   ├── ai/               # AI 分析引擎（报告/对话/调度）
 │   │   ├── probe/            # 端口探测引擎
 │   │   ├── store/            # SQLite 数据层
 │   │   └── ws/               # WebSocket Hub

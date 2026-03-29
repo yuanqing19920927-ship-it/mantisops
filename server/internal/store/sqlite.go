@@ -19,9 +19,13 @@ func InitSQLite(path string) (*sql.DB, error) {
 		"ALTER TABLE servers ADD COLUMN collect_docker BOOLEAN",
 		"ALTER TABLE servers ADD COLUMN collect_gpu BOOLEAN",
 		"ALTER TABLE probe_rules ADD COLUMN source TEXT DEFAULT 'manual'",
+		"ALTER TABLE servers ADD COLUMN probe_auto_scan BOOLEAN DEFAULT 0",
 	} {
 		db.Exec(col)
 	}
+
+	// Clean up orphaned probe rules (no server_id)
+	db.Exec("DELETE FROM probe_rules WHERE server_id IS NULL")
 
 	// Seed scan templates (ignore duplicate errors)
 	for _, t := range []struct{ Port int; Name string }{

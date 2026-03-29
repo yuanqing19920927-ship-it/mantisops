@@ -14,16 +14,15 @@
 | 强制改密 | `/change-password` | — | 公开 | 首次登录强制修改密码 |
 | 仪表盘 | `/` | 仪表盘 | all | 全局总览：统计卡片 + 告警/RDS/到期摘要 + 分组服务器列表 + 端口摘要 |
 | 服务器列表 | `/servers` | 服务器 | all | 卡片/表格双视图，自定义分组 + 排序 |
-| 服务器详情 | `/servers/:id` | — | all | 实时概览 + Docker 容器 + 历史趋势 + Agent 配置 |
+| 服务器详情 | `/servers/:id` | — | all | 实时概览 + Docker 容器 + 端口检测 + 历史趋势 + Agent 配置 |
 | NAS 存储 | `/nas` | NAS 存储 | all | NAS 设备列表 + 实时指标 |
 | NAS 详情 | `/nas/:id` | — | all | RAID/S.M.A.R.T./存储卷/UPS + 历史趋势 |
 | 数据库监控 | `/databases` | 数据库 | all | RDS 实例列表（按云账号分组）+ 实时指标 |
 | 数据库详情 | `/databases/:id` | — | all | RDS 实例指标瓦片 + 历史趋势图 |
-| 端口监控 | `/probes` | 端口监控 | all | 探测规则管理 + 实时状态 + 服务器自动扫描 + SSL 到期徽章 |
 | 托管业务 | `/assets` | 托管业务 | all | 按服务器分组的资产表格，CRUD + 技术栈标签 |
 | 告警中心 | `/alerts` | 告警中心 | all | 告警事件 + 规则配置 + 通知渠道 |
 | 日志中心 | `/logs` | 日志中心 | all | 操作审计 Tab + 运行日志 Tab（查询/实时） |
-| AI 报告 | `/ai-reports` | AI 报告 | all | AI 运维分析报告 + 对话 |
+| AI 报告 | `/ai-reports` | AI 报告 | all | AI 运维分析报告生成 + 模板编辑 + 报告管理 |
 | 资源到期 | `/billing` | 资源到期 | all | ECS/RDS/SSL 到期提醒 |
 | 系统设置 | `/system` | 系统设置 | admin | 平台配置 + 接入管理 + NAS/托管服务器/云账号管理 + AI 配置 |
 | 用户管理 | `/users` | 用户管理 | admin | 用户 CRUD + 角色 + 资源权限配置 |
@@ -37,7 +36,7 @@
 |------|------|
 | 登录页 | 居中玻璃卡片，用户名 + 密码输入，渐变登录按钮 |
 | JWT 鉴权 | 登录成功返回 JWT token（7 天有效期），持久化到 localStorage |
-| 路由守卫 | `RequireAuth` 组件包裹所有受保护路由，未登录自动跳转 `/login` |
+| 路由守卫 | `RequireAuth`（未登录跳转 `/login`）+ `RequireChangePwd`（强制改密）+ `RequireAdmin`（非 admin 跳转首页） |
 | Axios 拦截器 | 请求自动附加 `Authorization: Bearer` 头，401 响应自动跳转登录页 |
 | 用户菜单 | 右上角头像图标，点击展开下拉菜单显示用户名 + 退出登录 |
 | 主题切换 | 右上角太阳/月亮图标，点击切换深色/浅色主题 |
@@ -118,6 +117,7 @@
 | Bento Grid 右列(2/3) | **实时概览**：3x3 网格卡片 — CPU（含 load 1/5/15）、内存（含 swap）、磁盘、网络入站、网络出站、容器数。有 GPU 时追加 GPU 使用率/显存/温度 |
 | 运行业务 | 右列下方，展示该服务器部署的所有业务项目：名称、描述、技术栈标签、路径、端口 |
 | Docker 容器表格 | 容器名、状态（发光点）、CPU%、内存、镜像 |
+| **端口检测** | 该服务器的探测规则卡片网格：服务名、协议标签、地址、状态灯+延迟、SSL 到期徽章、来源标签（手动/自动）。支持添加/删除规则（operator+）。10 秒轮询状态 |
 | 历史趋势 | 时间范围切换（1h/6h/24h/7d）+ 刷新按钮。2 列网格展示 6 个历史图表：CPU 使用率、系统负载、内存使用率、磁盘使用率、网络流量合计、网络分网卡。有 GPU 时追加 3 个：GPU 使用率、GPU 显存、GPU 温度 |
 
 **服务器名称编辑：** 点击标题旁铅笔图标，切换为输入框，Enter 保存 / Esc 取消。
@@ -129,10 +129,16 @@
 - 自适应数值精度（小数值自动增加小数位数）
 - 三态：加载中旋转动画 / 错误重试按钮 / 无数据提示
 
+**Agent 配置对话框：**
+- Docker 容器监控开关、GPU 监控开关、**端口自动检测开关**（默认关闭）
+- 保存调用 `PUT /api/v1/servers/:id/config`（含 `probe_auto_scan` 字段）
+
 **数据来源：**
 - 基本信息：`GET /api/v1/servers/:id`
 - 实时指标：WebSocket
 - 运行业务：`GET /api/v1/assets`（按 server_id 过滤）
+- 端口检测规则：`GET /api/v1/probes?server_id={id}`
+- 端口检测状态：`GET /api/v1/probes/status?server_id={id}`（10 秒轮询）
 - 历史趋势：`/vm/api/v1/query_range`（Nginx 代理 VictoriaMetrics）
 - 名称修改：`PUT /api/v1/servers/:id/name`
 
@@ -171,37 +177,7 @@ RDS 云数据库实例监控。
 
 ---
 
-### 3.6 端口监控 (`/probes`)
-
-多协议端口探测管理，支持 TCP / HTTP / HTTPS。
-
-| 功能 | 说明 |
-|------|------|
-| 统计卡片行 | 4 张卡片：总探测任务数、正常运行数、异常告警数、平均响应延迟 |
-| 探测卡片网格 | 每张卡片：服务名、地址（TCP 显示 host:port，HTTP/HTTPS 显示 URL）、状态、响应延迟 |
-| **SSL 到期徽章** | HTTPS 探测卡片右上角显示证书剩余天数（>60天绿、30-60天黄、<30天红） |
-| 异常卡片 | 红色边框标注 |
-| **协议选择器** | 创建规则时选择 TCP / HTTP / HTTPS，不同协议显示不同表单字段 |
-| TCP 表单 | 服务名 + 主机 IP + 端口 |
-| HTTP/HTTPS 表单 | 服务名 + URL + 期望状态码（默认 200，0=不检查）+ 关键字匹配（可选） |
-| 删除规则 | 卡片悬停显示删除按钮 |
-| 自动刷新 | 每 10 秒拉取最新探测结果 |
-
-**HTTP/HTTPS 探测特性：**
-- URL 为唯一来源字段，host/port 由后端自动从 URL 解析
-- HTTP 请求使用严格 TLS 验证（证书无效 → status=down）
-- SSL 证书信息通过独立 TLS 握手采集（InsecureSkipVerify），即使证书过期/自签也能获取到期时间
-- `expect_status=0` 时跳过状态码检查
-- VictoriaMetrics 新指标：`mantisops_probe_http_status`、`mantisops_probe_ssl_days_left`
-
-**数据来源：**
-- 规则：`GET /api/v1/probes`
-- 状态：`GET /api/v1/probes/status`（10 秒轮询）
-- 操作：`POST`（创建）、`DELETE`（删除）
-
----
-
-### 3.7 本地业务 (`/assets`)
+### 3.6 本地业务 (`/assets`)
 
 服务器上部署的项目和服务信息管理。
 
@@ -218,7 +194,7 @@ RDS 云数据库实例监控。
 
 ---
 
-### 3.8 告警中心 (`/alerts`)
+### 3.7 告警中心 (`/alerts`)
 
 告警通知系统的管理中心，包含三个 Tab。
 
@@ -273,6 +249,52 @@ RDS 云数据库实例监控。
 - 渠道：`GET /api/v1/alerts/channels`、`POST`、`PUT`、`DELETE`
 - 测试：`POST /api/v1/alerts/channels/:id/test`
 - 实时推送：WebSocket `alert`/`alert_resolved`/`alert_acked` 消息
+
+---
+
+### 3.8 AI 报告 (`/ai-reports`)
+
+AI 运维分析报告的生成、管理和模板编辑。
+
+**报告列表页：**
+
+| 功能 | 说明 |
+|------|------|
+| 报告卡片网格 | 按类型标签 + 状态徽章 + 摘要 + 生成信息（provider/tokens/耗时） |
+| 类型筛选 | Tab 切换：全部 / 日报 / 周报 / 月报 / 季度 / 年度 |
+| 生成报告 | 对话框选择报告类型，后台异步生成 |
+| 生成进度 | 生成中卡片显示旋转动画 + 实时计时 |
+| 删除报告 | 卡片悬停显示删除按钮，点击弹出确认对话框 |
+| 编辑模板 | 模态对话框编辑各类型报告的 AI 提示词模板 |
+| WebSocket 更新 | 报告完成/失败时自动刷新列表 |
+
+**报告详情页 (`/ai-reports/:id`)：**
+
+| 功能 | 说明 |
+|------|------|
+| Markdown 渲染 | ReactMarkdown + remarkGfm 渲染报告内容 |
+| 元信息栏 | Provider、模型、Token 数、耗时、触发方式 |
+| 导出 Markdown | 下载报告为 .md 文件 |
+| 失败状态 | 显示错误信息 |
+
+**模板编辑对话框：**
+
+| 功能 | 说明 |
+|------|------|
+| 5 种类型 Tab | 日报 / 周报 / 月报 / 季度 / 年度 |
+| 默认模板预填 | 打开时从后端加载内置默认模板填入编辑区 |
+| 自定义覆盖 | 编辑后保存，内容与默认一致时自动使用默认 |
+| 恢复默认 | 一键重置为系统内置模板 |
+
+**数据来源：**
+- 报告列表：`GET /api/v1/ai/reports`
+- 报告详情：`GET /api/v1/ai/reports/:id`
+- 生成报告：`POST /api/v1/ai/reports/generate`
+- 删除报告：`DELETE /api/v1/ai/reports/:id`
+- 导出：`GET /api/v1/ai/reports/:id/download`
+- 模板读取：`GET /api/v1/ai/prompts`（返回 custom + defaults）
+- 模板保存：`PUT /api/v1/ai/prompts`
+- 实时更新：WebSocket `ai_report_completed` 事件
 
 ---
 
@@ -373,7 +395,7 @@ ECS / RDS / SSL 证书到期提醒。
 | 元素 | 位置 | 功能 |
 |------|------|------|
 | 汉堡菜单 | 左（移动端） | 切换侧边栏 |
-| 搜索框 | 左（桌面端） | 搜索服务器名/IP/host_id，下拉结果可点击跳转 |
+| 搜索框 | 左（桌面端） | 仅在服务器/NAS/数据库页面显示，按页面类型搜索对应资源，下拉结果可点击跳转 |
 | 刷新按钮 | 右 | sync 图标 |
 | 通知铃铛 | 右 | NotificationBell 组件：红色徽章显示 firing_unsilenced 数，点击下拉显示最近 10 条告警，"查看全部"跳转 /alerts |
 | 用户菜单 | 右 | 头像 + 用户名，下拉：用户信息 + 退出登录 |
@@ -386,14 +408,14 @@ ECS / RDS / SSL 证书到期提醒。
 | 服务器 | dns | `/servers` | 所有 |
 | NAS 存储 | hard_drive | `/nas` | 所有 |
 | 数据库 | database | `/databases` | 所有 |
-| 容器管理 | deployed_code | `/containers` | 所有 |
-| 端口监控 | sensors | `/probes` | 所有 |
 | 托管业务 | inventory_2 | `/assets` | 所有 |
 | 告警中心 | notifications_active | `/alerts` | 所有 |
 | 日志中心 | article | `/logs` | 所有 |
+| AI 报告 | analytics | `/ai-reports` | 所有 |
 | 资源到期 | event_upcoming | `/billing` | 所有 |
-| 系统信息 | settings | `/settings` | 所有 |
+| 系统设置 | admin_panel_settings | `/system` | **admin** |
 | 用户管理 | group | `/users` | **admin** |
+| 系统信息 | info | `/settings` | 所有 |
 
 激活项样式：绿色文字高亮
 

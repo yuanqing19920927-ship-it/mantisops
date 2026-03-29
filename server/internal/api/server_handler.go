@@ -111,12 +111,13 @@ func (h *ServerHandler) UpdateConfig(c *gin.Context) {
 	var req struct {
 		CollectDocker *bool `json:"collect_docker"`
 		CollectGPU    *bool `json:"collect_gpu"`
+		ProbeAutoScan *bool `json:"probe_auto_scan"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.store.UpdateConfig(id, req.CollectDocker, req.CollectGPU); err != nil {
+	if err := h.store.UpdateConfig(id, req.CollectDocker, req.CollectGPU, req.ProbeAutoScan); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -84,6 +84,33 @@ func (s *ProbeStore) ListEnabled() ([]model.ProbeRule, error) {
 	return rules, nil
 }
 
+func (s *ProbeStore) ListByServerID(serverID int) ([]model.ProbeRule, error) {
+	rows, err := s.db.Query(`SELECT id, server_id, name, host, port,
+		COALESCE(protocol,'tcp'), COALESCE(url,''), COALESCE(expect_status,200),
+		COALESCE(expect_body,''), COALESCE(interval_sec,30), COALESCE(timeout_sec,5), enabled, COALESCE(source,'manual')
+		FROM probe_rules WHERE server_id=? ORDER BY id`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rules []model.ProbeRule
+	for rows.Next() {
+		var r model.ProbeRule
+		var sid sql.NullInt64
+		if err := rows.Scan(&r.ID, &sid, &r.Name, &r.Host, &r.Port,
+			&r.Protocol, &r.URL, &r.ExpectStatus, &r.ExpectBody,
+			&r.IntervalSec, &r.TimeoutSec, &r.Enabled, &r.Source); err != nil {
+			return nil, err
+		}
+		if sid.Valid {
+			v := int(sid.Int64)
+			r.ServerID = &v
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
 func (s *ProbeStore) Update(rule *model.ProbeRule) error {
 	_, err := s.db.Exec(
 		`UPDATE probe_rules SET server_id=?, name=?, host=?, port=?, protocol=?, url=?, expect_status=?, expect_body=?, interval_sec=?, timeout_sec=?, enabled=? WHERE id=?`,

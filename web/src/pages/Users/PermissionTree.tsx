@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Navigate } from 'react-router-dom'
+import { useAuthStore } from '../../stores/authStore'
 import { getUser, getUserPermissions, setUserPermissions, type PermissionItem } from '../../api/users'
 import { getGroups, getServers, getDatabases, getProbes, type ProbeRule, type RDSInfo } from '../../api/client'
 import type { Server, ServerGroup } from '../../types'
@@ -7,7 +8,11 @@ import type { Server, ServerGroup } from '../../types'
 export default function PermissionTree() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const role = useAuthStore((s) => s.role)
   const userId = Number(id)
+
+  if (role !== 'admin') return <Navigate to="/" replace />
+  if (!id || isNaN(userId)) return <Navigate to="/users" replace />
 
   const [username, setUsername] = useState('')
   const [groups, setGroups] = useState<ServerGroup[]>([])
@@ -17,26 +22,32 @@ export default function PermissionTree() {
   const [selected, setSelected] = useState<Set<string>>(new Set()) // "type:id" format
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
-    const [user, perms, grps, srvs, dbs, prbs] = await Promise.all([
-      getUser(userId),
-      getUserPermissions(userId),
-      getGroups(),
-      getServers(),
-      getDatabases(),
-      getProbes(),
-    ])
-    setUsername(user.username)
-    setGroups(grps)
-    setServers(srvs)
-    setDatabases(dbs)
-    setProbes(prbs)
-    const sel = new Set<string>()
-    for (const p of perms as PermissionItem[]) {
-      sel.add(`${p.res_type}:${p.res_id}`)
+    try {
+      setLoadError('')
+      const [user, perms, grps, srvs, dbs, prbs] = await Promise.all([
+        getUser(userId),
+        getUserPermissions(userId),
+        getGroups(),
+        getServers(),
+        getDatabases(),
+        getProbes(),
+      ])
+      setUsername(user.username)
+      setGroups(grps)
+      setServers(srvs)
+      setDatabases(dbs)
+      setProbes(prbs)
+      const sel = new Set<string>()
+      for (const p of perms as PermissionItem[]) {
+        sel.add(`${p.res_type}:${p.res_id}`)
+      }
+      setSelected(sel)
+    } catch {
+      setLoadError('加载权限数据失败，请重试')
     }
-    setSelected(sel)
   }, [userId])
 
   useEffect(() => { load() }, [load])
@@ -86,6 +97,13 @@ export default function PermissionTree() {
       ungrouped.push(s)
     }
   }
+
+  if (loadError) return (
+    <div className="flex flex-col items-center justify-center py-20">
+      <p className="text-red-400 text-sm mb-4">{loadError}</p>
+      <button onClick={load} className="px-4 py-2 text-sm bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors">重试</button>
+    </div>
+  )
 
   return (
     <div className="flex flex-col gap-5">

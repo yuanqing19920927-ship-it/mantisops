@@ -8,7 +8,6 @@ const baseLinks = [
   { to: '/servers', label: '服务器', icon: 'dns' },
   { to: '/nas', label: 'NAS 存储', icon: 'hard_drive' },
   { to: '/databases', label: '数据库', icon: 'database' },
-  { to: '/probes', label: '端口监控', icon: 'sensors' },
   { to: '/assets', label: '托管业务', icon: 'inventory_2' },
   { to: '/alerts', label: '告警中心', icon: 'notifications_active' },
   { to: '/logs', label: '日志中心', icon: 'article' },

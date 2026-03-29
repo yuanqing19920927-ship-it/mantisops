@@ -1,15 +1,16 @@
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Sidebar } from './Sidebar'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { useAuthStore } from '../../stores/authStore'
 import { useServerStore } from '../../stores/serverStore'
+import { useNasStore } from '../../stores/nasStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { getDatabases, type RDSInfo } from '../../api/client'
 import { NotificationBell } from '../NotificationBell'
-import { ChatButton } from '../AIChat/ChatButton'
+// import { ChatButton } from '../AIChat/ChatButton'
 
 interface SearchResult {
-  type: 'server' | 'probe' | 'asset'
   icon: string
   label: string
   sub: string
@@ -19,16 +20,40 @@ interface SearchResult {
 export function MainLayout() {
   useWebSocket()
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
+  const checkAuth = useAuthStore((s) => s.checkAuth)
   useEffect(() => { fetchSettings() }, [fetchSettings])
+  useEffect(() => { checkAuth() }, [checkAuth])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const { username, logout } = useAuthStore()
   const { servers } = useServerStore()
+  const { devices: nasDevices } = useNasStore()
+  const [databases, setDatabases] = useState<RDSInfo[]>([])
   const navigate = useNavigate()
+  const location = useLocation()
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLDivElement>(null)
+
+  // 判断当前页面搜索类型
+  const searchMode = useMemo(() => {
+    const p = location.pathname
+    if (p === '/servers' || p.startsWith('/servers/')) return 'server'
+    if (p === '/nas' || p.startsWith('/nas/')) return 'nas'
+    if (p === '/databases' || p.startsWith('/databases/')) return 'database'
+    return null
+  }, [location.pathname])
+
+  // 切换页面时清空搜索
+  useEffect(() => { setSearchQuery(''); setSearchFocused(false) }, [location.pathname])
+
+  // 懒加载数据库列表（仅在数据库页面）
+  useEffect(() => {
+    if (searchMode === 'database' && databases.length === 0) {
+      getDatabases().then(setDatabases).catch(() => {})
+    }
+  }, [searchMode])
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
@@ -44,31 +69,44 @@ export function MainLayout() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // 搜索结果
+  // 搜索结果（按页面类型匹配不同数据源）
   const searchResults = useMemo<SearchResult[]>(() => {
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return []
+    if (!q || !searchMode) return []
     const results: SearchResult[] = []
 
-    for (const s of servers) {
-      const name = (s.display_name || s.hostname).toLowerCase()
-      let ip = ''
-      try { ip = JSON.parse(s.ip_addresses || '[]')[0] || '' } catch { /* */ }
-
-      if (name.includes(q) || ip.includes(q) || s.host_id.toLowerCase().includes(q)) {
-        results.push({
-          type: 'server',
-          icon: 'dns',
-          label: s.display_name || s.hostname,
-          sub: ip || s.host_id,
-          href: `/servers/${s.host_id}`,
-        })
+    if (searchMode === 'server') {
+      for (const s of servers) {
+        const name = (s.display_name || s.hostname).toLowerCase()
+        let ip = ''
+        try { ip = JSON.parse(s.ip_addresses || '[]')[0] || '' } catch { /* */ }
+        if (name.includes(q) || ip.includes(q) || s.host_id.toLowerCase().includes(q)) {
+          results.push({ icon: 'dns', label: s.display_name || s.hostname, sub: ip || s.host_id, href: `/servers/${s.host_id}` })
+        }
+        if (results.length >= 8) break
       }
-      if (results.length >= 8) break
+    } else if (searchMode === 'nas') {
+      for (const d of nasDevices) {
+        const name = d.name.toLowerCase()
+        const host = d.host.toLowerCase()
+        if (name.includes(q) || host.includes(q)) {
+          results.push({ icon: 'hard_drive', label: d.name, sub: `${d.host}:${d.port}`, href: `/nas/${d.id}` })
+        }
+        if (results.length >= 8) break
+      }
+    } else if (searchMode === 'database') {
+      for (const db of databases) {
+        const name = db.name.toLowerCase()
+        const hostId = db.host_id.toLowerCase()
+        if (name.includes(q) || hostId.includes(q) || db.engine.toLowerCase().includes(q)) {
+          results.push({ icon: 'database', label: db.name, sub: `${db.engine} · ${db.host_id}`, href: `/databases/${db.host_id}` })
+        }
+        if (results.length >= 8) break
+      }
     }
 
     return results
-  }, [searchQuery, servers])
+  }, [searchQuery, searchMode, servers, nasDevices, databases])
 
   const handleLogout = () => {
     setUserMenuOpen(false)
@@ -97,8 +135,8 @@ export function MainLayout() {
             </span>
           </button>
 
-          {/* Search */}
-          <div ref={searchRef} className="relative hidden md:block">
+          {/* Search — 仅在服务器/NAS/数据库页面显示 */}
+          {searchMode && <div ref={searchRef} className="relative hidden md:block">
             <span className="material-symbols-outlined text-gray-400 text-base absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
               search
             </span>
@@ -107,7 +145,7 @@ export function MainLayout() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => setSearchFocused(true)}
-              placeholder="搜索服务器..."
+              placeholder={searchMode === 'server' ? '搜索服务器...' : searchMode === 'nas' ? '搜索 NAS 设备...' : '搜索数据库...'}
               className="bg-[#f3f3f9] text-sm text-gray-600 placeholder-gray-400 rounded-full pl-9 pr-4 py-2 w-60 outline-none focus:ring-2 focus:ring-[#2ca07a]/30 transition"
             />
             {/* Search results dropdown */}
@@ -117,7 +155,7 @@ export function MainLayout() {
                   <div className="max-h-80 overflow-y-auto">
                     {searchResults.map((r, i) => (
                       <button
-                        key={`${r.type}-${r.href}-${i}`}
+                        key={`${r.href}-${i}`}
                         onClick={() => handleSearchSelect(r.href)}
                         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#f8f9fa] transition-colors text-left"
                       >
@@ -139,7 +177,7 @@ export function MainLayout() {
                 )}
               </div>
             )}
-          </div>
+          </div>}
         </div>
 
         {/* Right: actions */}
@@ -196,7 +234,7 @@ export function MainLayout() {
         <Outlet />
       </main>
 
-      <ChatButton />
+      {/* <ChatButton /> */}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { useAuthStore } from './stores/authStore'
 import Dashboard from './pages/Dashboard'
 import ServerDetail from './pages/ServerDetail'
 import Servers from './pages/Servers'
-import Probes from './pages/Probes'
+// import Probes from './pages/Probes' // Moved to ServerDetail/ProbeSection
 import Assets from './pages/Assets'
 import Settings from './pages/Settings'
 import Databases from './pages/Databases'
@@ -35,6 +35,12 @@ function RequireChangePwd({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore((s) => s.role)
+  if (role !== 'admin') return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -51,16 +57,16 @@ export default function App() {
           <Route path="/nas/:id" element={<NASDetail />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/containers" element={<Containers />} />
-          <Route path="/probes" element={<Probes />} />
+          {/* <Route path="/probes" element={<Probes />} /> */}
           <Route path="/assets" element={<Assets />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/system" element={<SystemAdmin />} />
+          <Route path="/system" element={<RequireAdmin><SystemAdmin /></RequireAdmin>} />
           <Route path="/ai-reports" element={<AIReports />} />
           <Route path="/ai-reports/:id" element={<ReportDetail />} />
-          <Route path="/users" element={<Users />} />
-          <Route path="/users/:id/permissions" element={<PermissionTree />} />
+          <Route path="/users" element={<RequireAdmin><Users /></RequireAdmin>} />
+          <Route path="/users/:id/permissions" element={<RequireAdmin><PermissionTree /></RequireAdmin>} />
         </Route>
       </Routes>
     </BrowserRouter>

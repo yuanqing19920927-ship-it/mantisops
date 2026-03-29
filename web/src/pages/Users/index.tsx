@@ -198,7 +198,7 @@ export default function Users() {
         <Dialog title="添加用户" onClose={() => setShowCreate(false)}>
           <div className="space-y-3">
             <Input label="用户名" value={cUsername} onChange={setCUsername} placeholder="英文用户名" />
-            <Input label="初始密码" value={cPassword} onChange={setCPassword} placeholder="用户首次登录需修改" type="password" />
+            <Input label="初始密码" value={cPassword} onChange={setCPassword} placeholder="至少6位，用户首次登录需修改" type="password" />
             <Input label="显示名" value={cDisplayName} onChange={setCDisplayName} placeholder="如：张三" />
             <div>
               <label className="block text-[12px] font-medium text-[#878a99] mb-1.5">角色</label>
@@ -208,7 +208,7 @@ export default function Users() {
                 <option value="admin">管理员</option>
               </select>
             </div>
-            <button onClick={handleCreate} disabled={saving || !cUsername || !cPassword} className="w-full mt-2 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors disabled:opacity-50">
+            <button onClick={handleCreate} disabled={saving || !cUsername || cPassword.length < 6} className="w-full mt-2 px-4 py-2 text-[13px] bg-[#2ca07a] hover:bg-[#1f7d5e] text-white rounded transition-colors disabled:opacity-50">
               {saving ? '创建中...' : '创建'}
             </button>
           </div>
@@ -245,7 +245,7 @@ export default function Users() {
           <div className="space-y-3">
             <p className="text-[12px] text-[#878a99]">设置新初始密码，用户下次登录需修改。</p>
             <Input label="新初始密码" value={rPassword} onChange={setRPassword} type="password" placeholder="至少6位" />
-            <button onClick={handleReset} disabled={saving || !rPassword} className="w-full mt-2 px-4 py-2 text-[13px] bg-[#f7b84b] hover:bg-[#e5a936] text-white rounded transition-colors disabled:opacity-50">
+            <button onClick={handleReset} disabled={saving || rPassword.length < 6} className="w-full mt-2 px-4 py-2 text-[13px] bg-[#f7b84b] hover:bg-[#e5a936] text-white rounded transition-colors disabled:opacity-50">
               {saving ? '重置中...' : '确认重置'}
             </button>
           </div>
