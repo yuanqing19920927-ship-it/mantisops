@@ -176,10 +176,6 @@ mantisops/
 └── deployments/              # 部署配置（Nginx 等）
 ```
 
-## 截图
-
-
-
 ## License
 
 本项目采用 [Business Source License 1.1 (BSL-1.1)](LICENSE) 许可。
