@@ -178,7 +178,7 @@ mantisops/
 
 ## 截图
 
-![Dashboard](docs/screenshot-dashboard.png)
+
 
 ## License
 
