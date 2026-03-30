@@ -29,6 +29,9 @@
 | SNMP 定时采集 | 3 并发 | 每请求间隔 100ms | 仅对已确认支持 SNMP 的设备 |
 | 连通性 ping | 10 并发 | 每包间隔 20ms | 定时监控，间隔 ≥ 60 秒 |
 
+> **以上速率限制为系统 hard cap**，`server.yaml` 中的配置只能在 cap 内下调，不可上调突破。
+> **网段前缀限制**：仅接受 /24 或更小的网段（最大 254 个主机），拒绝 /23 及更大范围，前后端均校验。
+
 ### 2.2 禁止行为
 
 - **禁止广播包** — 不使用 ARP 广播扫描，仅用单播 ICMP echo
@@ -125,7 +128,7 @@ CREATE TABLE network_links (
     target_id   INTEGER REFERENCES network_devices(id) ON DELETE CASCADE,
     source_port TEXT DEFAULT '',        -- 源端口名（如 "GigabitEthernet0/1"）
     target_port TEXT DEFAULT '',        -- 目标端口名
-    protocol    TEXT DEFAULT 'lldp',    -- lldp/cdp/arp
+    protocol    TEXT DEFAULT 'lldp',    -- lldp/cdp
     bandwidth   TEXT DEFAULT '',        -- 链路带宽
     last_seen   DATETIME,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -202,14 +205,14 @@ ConnectivityMonitor 每 60 秒对所有已发现设备执行 ping：
   - 告警恢复：设备重新上线时自动 resolve 对应告警事件
 ```
 
-### 5.3 SNMP 定时采集
+### 5.6 SNMP 定时采集
 
 ```
 每 5 分钟对所有 snmp_supported=true 的设备：
   - 3 并发，100ms 间隔
-  - 读取端口流量、邻居表
-  - 更新 network_links
-  - 写入 VictoriaMetrics（可选，用于历史流量趋势）
+  - 读取 LLDP/CDP 邻居表 → 更新 network_links
+  - 不采集端口级流量数据（属于后续迭代，见 YAGNI）
+  - 不写入 VictoriaMetrics（属于后续迭代）
 ```
 
 ## 六、API 设计
@@ -229,7 +232,7 @@ ConnectivityMonitor 每 60 秒对所有已发现设备执行 ping：
 | GET | `/api/v1/network/devices` | 设备列表（支持 subnet_id 筛选） | all |
 | GET | `/api/v1/network/devices/:id` | 设备详情（含 SNMP 信息） | all |
 | PUT | `/api/v1/network/devices/:id` | 修正设备类型/名称 | admin |
-| DELETE | `/api/v1/network/devices/:id` | 删除设备记录 | admin |
+| DELETE | `/api/v1/network/devices/:id` | 删除设备记录（硬删除，链路 FK 级联删除；后续扫描可重新发现） | admin |
 
 ### 6.3 拓扑与网段
 
@@ -249,8 +252,9 @@ ConnectivityMonitor 每 60 秒对所有已发现设备执行 ping：
 
 | 事件类型 | 数据 | 说明 |
 |---------|------|------|
-| `network_scan_progress` | `{ subnet, total, scanned, found }` | 扫描进度 |
-| `network_scan_complete` | `{ subnet, devices_found, snmp_count }` | 扫描完成 |
+| `network_scan_progress` | `{ subnet, total, scanned, found }` | 单个网段扫描进度 |
+| `network_scan_subnet_done` | `{ subnet, devices_found, snmp_count }` | 单个网段扫描完成 |
+| `network_scan_job_done` | `{ total_subnets, total_devices, status }` | 整个扫描任务完成（所有网段扫完或取消） |
 | `network_device_status` | `{ device_id, ip, status, prev_status }` | 设备状态变化 |
 
 ## 七、前端设计
@@ -320,12 +324,17 @@ network:
   snmp_communities:                 # SNMP community 列表
     - "public"
     - "private"
+  snmp_collect:
+    concurrency: 3                  # SNMP 定时采集并发数（hard cap: 3）
+    interval_ms: 100                # SNMP 定时采集请求间隔
   scan:
-    icmp_concurrency: 10            # ICMP 并发数
-    icmp_interval_ms: 10            # ICMP 包间隔（毫秒）
-    snmp_concurrency: 5             # SNMP 探测并发数
+    icmp_concurrency: 10            # ICMP 并发数（hard cap: 10）
+    icmp_interval_ms: 10            # ICMP 包间隔（hard cap 下限: 10ms）
+    snmp_concurrency: 5             # SNMP 探测并发数（hard cap: 5）
     snmp_timeout_ms: 2000           # SNMP 超时（毫秒）
     icmp_timeout_ms: 1000           # ICMP 超时（毫秒）
+    schedule: ""                    # 定时扫描 cron 表达式（如 "0 2 * * *" = 每天凌晨2点），空=不定时
+    schedule_subnets: []            # 定时扫描目标网段列表
 ```
 
 ## 十、与现有系统集成
