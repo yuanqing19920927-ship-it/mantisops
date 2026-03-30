@@ -21,6 +21,7 @@
 | 数据库详情 | `/databases/:id` | — | all | RDS 实例指标瓦片 + 历史趋势图 |
 | 托管业务 | `/assets` | 托管业务 | all | 按服务器分组的资产表格，CRUD + 技术栈标签 |
 | 告警中心 | `/alerts` | 告警中心 | all | 告警事件 + 规则配置 + 通知渠道 |
+| 网络拓扑 | `/network` | 网络拓扑 | all（扫描 admin） | D3.js 拓扑图 + 设备列表 + 网段概览 + ICMP/SNMP 扫描 |
 | 日志中心 | `/logs` | 日志中心 | all | 操作审计 Tab + 运行日志 Tab（查询/实时） |
 | AI 报告 | `/ai-reports` | AI 报告 | all | AI 运维分析报告生成 + 模板编辑 + 报告管理 |
 | 资源到期 | `/billing` | 资源到期 | all | ECS/RDS/SSL 到期提醒 |
@@ -298,7 +299,55 @@ AI 运维分析报告的生成、管理和模板编辑。
 
 ---
 
-### 3.9 资源到期 (`/billing`)
+### 3.9 网络拓扑 (`/network`)
+
+网络设备发现、拓扑可视化与连通性监控。
+
+**三个 Tab：**
+
+**Tab 1 — 拓扑图**
+
+| 功能 | 说明 |
+|------|------|
+| D3.js 力导向图 | 节点按 device_type 显示不同图标（switch/router/ap/firewall/server/unknown） |
+| 状态颜色 | online 绿色、offline 灰色 |
+| 服务器标识 | 已关联 MantisOps 服务器的节点半径更大 |
+| 交互 | 拖拽节点、缩放平移、悬停信息卡片（IP/厂商/型号/状态） |
+| LLDP 链路 | 连线来自 SNMP LLDP/CDP 邻居发现，离线连接虚线 |
+
+**Tab 2 — 设备列表**
+
+| 功能 | 说明 |
+|------|------|
+| 表格 | 状态灯、IP、MAC、厂商、类型（可编辑下拉）、型号、SNMP、网段、最后在线 |
+| 筛选 | 按网段/类型/状态 |
+| 搜索 | IP/MAC/厂商/型号 |
+| 操作 | admin 可修正设备类型、删除设备 |
+
+**Tab 3 — 网段概览**
+
+| 功能 | 说明 |
+|------|------|
+| 网段卡片 | CIDR、网关、设备数/在线数、在线率进度条 |
+| 颜色编码 | >80% 绿、>50% 黄、≤50% 红 |
+
+**扫描管理（admin only）：**
+- 「扫描网络」按钮 → 弹窗输入 CIDR（逗号分隔，限 /24 或更小）
+- 显示预估耗时，二次确认
+- 扫描中显示进度条 + 取消按钮
+
+**数据来源：**
+- `POST /api/v1/network/scan` — 触发扫描
+- `GET /api/v1/network/scan/status` — 扫描状态
+- `DELETE /api/v1/network/scan` — 取消扫描
+- `GET /api/v1/network/devices` — 设备列表
+- `GET /api/v1/network/topology` — 拓扑图数据（nodes + edges）
+- `GET /api/v1/network/subnets` — 网段列表
+- WebSocket：`network_scan_progress`、`network_scan_subnet_done`、`network_scan_job_done`、`network_device_status`
+
+---
+
+### 3.10 资源到期 (`/billing`)
 
 ECS / RDS / SSL 证书到期提醒。
 
@@ -322,7 +371,7 @@ ECS / RDS / SSL 证书到期提醒。
 
 ---
 
-### 3.10 系统信息 (`/settings`)
+### 3.11 系统信息 (`/settings`)
 
 系统版本和 Agent 管理。
 
@@ -333,7 +382,7 @@ ECS / RDS / SSL 证书到期提醒。
 
 ---
 
-### 3.11 用户管理 (`/users`，仅 admin 可见)
+### 3.12 用户管理 (`/users`，仅 admin 可见)
 
 多用户账号管理，admin 角色专属页面。
 
@@ -355,7 +404,7 @@ ECS / RDS / SSL 证书到期提醒。
 
 ---
 
-### 3.12 权限配置 (`/users/:id/permissions`，仅 admin 可见)
+### 3.13 权限配置 (`/users/:id/permissions`，仅 admin 可见)
 
 树形资源权限配置页面。
 
@@ -374,7 +423,7 @@ ECS / RDS / SSL 证书到期提醒。
 
 ---
 
-### 3.13 强制改密 (`/change-password`)
+### 3.14 强制改密 (`/change-password`)
 
 管理员创建用户后首次登录的强制改密页面。
 
@@ -410,6 +459,7 @@ ECS / RDS / SSL 证书到期提醒。
 | 数据库 | database | `/databases` | 所有 |
 | 托管业务 | inventory_2 | `/assets` | 所有 |
 | 告警中心 | notifications_active | `/alerts` | 所有 |
+| 网络拓扑 | device_hub | `/network` | 所有 |
 | 日志中心 | article | `/logs` | 所有 |
 | AI 报告 | analytics | `/ai-reports` | 所有 |
 | 资源到期 | event_upcoming | `/billing` | 所有 |

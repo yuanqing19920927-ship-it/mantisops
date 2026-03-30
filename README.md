@@ -13,7 +13,8 @@
 - **NAS 监控** — 群晖/飞牛 NAS 设备监控（RAID、S.M.A.R.T.、存储卷、UPS），SSH 采集
 - **阿里云集成** — ECS 云监控（无需部署 Agent）+ RDS 数据库监控
 - **端口探测** — 按服务器管理探测规则，TCP/HTTP/HTTPS 可用性检测 + SSL 证书到期监控 + 自动端口检测
-- **告警引擎** — 16 种告警类型（含 NAS 告警）+ 钉钉/Webhook 通知
+- **网络拓扑** — ICMP 扫描发现网络设备 + SNMP 自动探测 + D3.js 拓扑图 + 连通性监控
+- **告警引擎** — 17 种告警类型（含 NAS + 网络设备离线）+ 钉钉/Webhook 通知
 - **日志中心** — 操作审计 + 结构化运行日志 + 关键字搜索 + 实时尾随 + 导出
 - **AI 分析** — 运维分析报告 + 智能对话
 - **多用户权限** — admin/operator/viewer 三级角色 + 资源级权限 + 即时踢下线
@@ -35,7 +36,8 @@ Go Server (HTTP + gRPC)
   ├── AliyunCollector   → 阿里云 ECS/RDS API 采集
   ├── NasCollector(SSH) → 群晖/飞牛 NAS 指标采集
   ├── ProbeEngine       → 端口/HTTP 探测 + 自动扫描
-  ├── AlertEngine       → 告警规则引擎
+  ├── AlertEngine       → 告警规则引擎（含网络设备离线告警）
+  ├── NetworkScanner    → ICMP/SNMP 网络设备发现 + 连通性监控
   ├── AIEngine          → 运维分析报告 + 智能对话（Claude/OpenAI/Ollama）
   ├── LogManager        → 结构化日志 + 操作审计
   └── SQLite            → 配置与元数据存储
@@ -162,6 +164,7 @@ mantisops/
 │   │   ├── deployer/         # SSH Agent 部署器
 │   │   ├── logging/          # 结构化日志 + 操作审计
 │   │   ├── ai/               # AI 分析引擎（报告/对话/调度）
+│   │   ├── network/          # 网络拓扑（ICMP/SNMP 扫描 + 连通性监控）
 │   │   ├── probe/            # 端口探测引擎
 │   │   ├── store/            # SQLite 数据层
 │   │   └── ws/               # WebSocket Hub
