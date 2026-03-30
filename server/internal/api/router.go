@@ -25,6 +25,7 @@ type RouterDeps struct {
 	CloudHandler         *CloudHandler
 	ManagedServerHandler *ManagedServerHandler
 	NasHandler           *NasHandler
+	NetworkHandler       *NetworkHandler
 	LogHandler           *LogHandler
 	LogManager           *logging.LogManager
 	SettingsHandler      *SettingsHandler
@@ -111,6 +112,15 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 		if deps.NasHandler != nil {
 			v1.GET("/nas-devices", deps.NasHandler.List)
 			v1.GET("/nas-devices/:id/metrics", deps.NasHandler.GetMetrics)
+		}
+
+		// Network topology read
+		if deps.NetworkHandler != nil {
+			v1.GET("/network/devices", deps.NetworkHandler.ListDevices)
+			v1.GET("/network/devices/:id", deps.NetworkHandler.GetDevice)
+			v1.GET("/network/topology", deps.NetworkHandler.GetTopology)
+			v1.GET("/network/subnets", deps.NetworkHandler.ListSubnets)
+			v1.GET("/network/scan/status", deps.NetworkHandler.GetScanStatus)
 		}
 
 		// AI analysis module (read-only for all authenticated users)
@@ -247,6 +257,16 @@ func SetupRouter(deps RouterDeps) *gin.Engine {
 				adm.POST("/nas-devices", deps.NasHandler.Create)
 				adm.PUT("/nas-devices/:id", deps.NasHandler.Update)
 				adm.DELETE("/nas-devices/:id", deps.NasHandler.Delete)
+			}
+
+			// Network topology management
+			if deps.NetworkHandler != nil {
+				adm.POST("/network/scan", deps.NetworkHandler.StartScan)
+				adm.DELETE("/network/scan", deps.NetworkHandler.CancelScan)
+				adm.PUT("/network/devices/:id", deps.NetworkHandler.UpdateDevice)
+				adm.DELETE("/network/devices/:id", deps.NetworkHandler.DeleteDevice)
+				adm.GET("/network/snmp-config", deps.NetworkHandler.GetSNMPConfig)
+				adm.PUT("/network/snmp-config", deps.NetworkHandler.UpdateSNMPConfig)
 			}
 
 			// Cloud accounts & instances

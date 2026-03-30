@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	probing "github.com/prometheus-community/pro-bing"
-
 	"mantisops/server/internal/config"
 	"mantisops/server/internal/ws"
 )
@@ -88,6 +86,58 @@ func (s *Scanner) StartScan(ctx context.Context, subnets []string) error {
 	return nil
 }
 
+// BeginScan transitions the scanner to "scanning" state and returns a
+// derived context + cancel.  It is intended for external orchestrators that
+// want to drive the scan lifecycle themselves using ScanSubnet.
+// Returns an error if a scan is already running.
+func (s *Scanner) BeginScan(ctx context.Context) (context.Context, context.CancelFunc, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.job.Status == "scanning" {
+		return nil, nil, fmt.Errorf("scan already in progress")
+	}
+
+	scanCtx, cancel := context.WithCancel(ctx)
+	now := time.Now().Format(time.RFC3339)
+	s.job = ScanJob{
+		Status:    "scanning",
+		StartedAt: &now,
+		cancel:    cancel,
+	}
+	return scanCtx, cancel, nil
+}
+
+// SetCurrentSubnet updates the currently-scanning subnet label visible in status.
+func (s *Scanner) SetCurrentSubnet(cidr string) {
+	s.mu.Lock()
+	s.job.CurrentSubnet = cidr
+	s.mu.Unlock()
+}
+
+// FinishScan sets the final status ("completed", "cancelled", or "failed")
+// and schedules an auto-reset to "idle" after 5 minutes.
+// If errMsg is non-empty and status is "failed", it is stored in the job.
+func (s *Scanner) FinishScan(status, errMsg string, results []ScanResult) {
+	s.mu.Lock()
+	s.job.Status = status
+	s.job.CurrentSubnet = ""
+	s.job.cancel = nil
+	if status == "completed" {
+		s.job.Progress = 1.0
+	}
+	if errMsg != "" {
+		s.job.Error = errMsg
+	}
+	s.mu.Unlock()
+
+	s.broadcastAdmin("network_scan_job_done", map[string]interface{}{
+		"status":  status,
+		"results": results,
+	})
+	go s.autoReset(5 * time.Minute)
+}
+
 // runScan executes the full scan sequentially across subnets.
 func (s *Scanner) runScan(ctx context.Context, subnets []string) {
 	var allResults []ScanResult
@@ -98,7 +148,7 @@ func (s *Scanner) runScan(ctx context.Context, subnets []string) {
 		s.job.CurrentSubnet = cidr
 		s.mu.Unlock()
 
-		results := s.scanSubnet(ctx, cidr)
+		results := s.ScanSubnet(ctx, cidr)
 		allResults = append(allResults, results...)
 
 		// Check for cancellation between subnets.
@@ -134,8 +184,10 @@ func (s *Scanner) runScan(ctx context.Context, subnets []string) {
 	go s.autoReset(5 * time.Minute)
 }
 
-// scanSubnet pings every host in cidr concurrently and returns live hosts.
-func (s *Scanner) scanSubnet(ctx context.Context, cidr string) []ScanResult {
+// ScanSubnet pings every host in cidr concurrently and returns live hosts.
+// It is exported so that external orchestrators (e.g. NetworkHandler) can call
+// individual subnets without going through the full async StartScan lifecycle.
+func (s *Scanner) ScanSubnet(ctx context.Context, cidr string) []ScanResult {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		log.Printf("[network/scanner] invalid CIDR %q: %v", cidr, err)
@@ -307,20 +359,4 @@ func (s *Scanner) broadcastAdmin(msgType string, payload map[string]interface{})
 	s.hub.BroadcastAdmin(payload)
 }
 
-// pingOnce sends one ICMP echo to ip with the given timeout in milliseconds.
-// It uses SetPrivileged(true) so that it works without raw-socket capabilities
-// when run as root.
-func pingOnce(ip string, timeoutMs int) bool {
-	pinger, err := probing.NewPinger(ip)
-	if err != nil {
-		return false
-	}
-	pinger.SetPrivileged(true)
-	pinger.Count = 1
-	pinger.Timeout = time.Duration(timeoutMs) * time.Millisecond
-
-	if err := pinger.Run(); err != nil {
-		return false
-	}
-	return pinger.Statistics().PacketsRecv > 0
-}
+// Note: pingOnce is defined in monitor.go and shared across the package.

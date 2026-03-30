@@ -17,6 +17,7 @@ import (
 	"mantisops/server/internal/deployer"
 	grpcpkg "mantisops/server/internal/grpc"
 	"mantisops/server/internal/logging"
+	"mantisops/server/internal/network"
 	"mantisops/server/internal/probe"
 	"mantisops/server/internal/store"
 	"mantisops/server/internal/ws"
@@ -234,6 +235,20 @@ func main() {
 	// NAS handler
 	nasHandler := api.NewNasHandler(nasStore, credentialStore, nasCollector)
 
+	// Network topology module
+	networkStore := store.NewNetworkStore(db)
+	var networkHandler *api.NetworkHandler
+	var networkMonitor *network.ConnectivityMonitor
+	if cfg.Network.Enabled {
+		netScanner := network.NewScanner(cfg.Network, hub)
+		snmpProber := network.NewSNMPProber(cfg.Network.SNMPCommunities, cfg.Network.Scan.SNMPTimeoutMs)
+		networkHandler = api.NewNetworkHandler(networkStore, netScanner, snmpProber, hub, credentialStore, serverStore)
+		networkMonitor = network.NewConnectivityMonitor(cfg.Network, networkStore, hub)
+		networkMonitor.Start()
+		defer networkMonitor.Stop()
+		log.Println("[network] topology module enabled")
+	}
+
 	// 19. Log handler
 	logSearcher := logging.NewLogSearcher(logStore, cfg.Logging.Dir)
 	logHandler := api.NewLogHandler(logStore, logSearcher, permCache)
@@ -276,6 +291,7 @@ func main() {
 		CloudHandler:         cloudHandler,
 		ManagedServerHandler: managedServerHandler,
 		NasHandler:           nasHandler,
+		NetworkHandler:       networkHandler,
 		LogHandler:           logHandler,
 		LogManager:           logMgr,
 		ScanHandler:          scanHandler,

@@ -53,6 +53,23 @@ func NewSNMPProber(communities []string, timeoutMs int) *SNMPProber {
 	return &SNMPProber{communities: c, timeoutMs: timeoutMs}
 }
 
+// GetCommunities returns the currently configured SNMP community strings.
+func (p *SNMPProber) GetCommunities() []string {
+	out := make([]string, len(p.communities))
+	copy(out, p.communities)
+	return out
+}
+
+// SetCommunities replaces the community list with the provided values.
+// This is a best-effort in-memory update; callers that need persistence
+// should also write the value to a settings store.
+func (p *SNMPProber) SetCommunities(communities []string) error {
+	c := make([]string, len(communities))
+	copy(c, communities)
+	p.communities = c
+	return nil
+}
+
 // Probe tries each configured community against ip and returns the first
 // successful result.  Returns nil if the device does not respond to any.
 func (p *SNMPProber) Probe(ctx context.Context, ip string) *SNMPResult {
