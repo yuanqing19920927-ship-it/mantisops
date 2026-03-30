@@ -278,6 +278,51 @@ func migrate(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_discovered_host ON discovered_services(host_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_discovered_unique ON discovered_services(host_id, port, protocol)`,
+
+		// Network topology
+		`CREATE TABLE IF NOT EXISTS network_subnets (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			cidr TEXT NOT NULL UNIQUE,
+			name TEXT DEFAULT '',
+			gateway TEXT DEFAULT '',
+			total_hosts INTEGER DEFAULT 0,
+			alive_hosts INTEGER DEFAULT 0,
+			last_scan DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS network_devices (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			ip TEXT NOT NULL,
+			mac TEXT DEFAULT '',
+			vendor TEXT DEFAULT '',
+			device_type TEXT DEFAULT 'unknown',
+			hostname TEXT DEFAULT '',
+			snmp_supported BOOLEAN DEFAULT FALSE,
+			snmp_credential_id INTEGER DEFAULT 0,
+			sys_descr TEXT DEFAULT '',
+			sys_name TEXT DEFAULT '',
+			sys_object_id TEXT DEFAULT '',
+			model TEXT DEFAULT '',
+			subnet_id INTEGER REFERENCES network_subnets(id),
+			status TEXT DEFAULT 'online',
+			last_seen DATETIME,
+			first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+			server_id INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_network_devices_ip ON network_devices(ip)`,
+		`CREATE TABLE IF NOT EXISTS network_links (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source_id INTEGER REFERENCES network_devices(id) ON DELETE CASCADE,
+			target_id INTEGER REFERENCES network_devices(id) ON DELETE CASCADE,
+			source_port TEXT DEFAULT '',
+			target_port TEXT DEFAULT '',
+			protocol TEXT DEFAULT 'lldp',
+			bandwidth TEXT DEFAULT '',
+			last_seen DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(source_id, target_id, source_port)
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
