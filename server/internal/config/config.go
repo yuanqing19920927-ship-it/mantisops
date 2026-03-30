@@ -18,6 +18,27 @@ type Config struct {
 	AgentBin      AgentBinConfig `yaml:"agent"`
 	Logging       LoggingConfig  `yaml:"logging"`
 	AI            AIConfig       `yaml:"ai"`
+	Network       NetworkConfig  `yaml:"network"`
+}
+
+type NetworkConfig struct {
+	Enabled         bool     `yaml:"enabled"`
+	MonitorInterval int      `yaml:"monitor_interval"`
+	SNMPInterval    int      `yaml:"snmp_interval"`
+	SNMPCommunities []string `yaml:"snmp_communities"`
+	SNMPCollect     struct {
+		Concurrency int `yaml:"concurrency"`
+		IntervalMs  int `yaml:"interval_ms"`
+	} `yaml:"snmp_collect"`
+	Scan struct {
+		ICMPConcurrency int      `yaml:"icmp_concurrency"`
+		ICMPIntervalMs  int      `yaml:"icmp_interval_ms"`
+		SNMPConcurrency int      `yaml:"snmp_concurrency"`
+		SNMPTimeoutMs   int      `yaml:"snmp_timeout_ms"`
+		ICMPTimeoutMs   int      `yaml:"icmp_timeout_ms"`
+		Schedule        string   `yaml:"schedule"`
+		ScheduleSubnets []string `yaml:"schedule_subnets"`
+	} `yaml:"scan"`
 }
 
 type AuthConfig struct {
@@ -211,5 +232,53 @@ func Load(path string) (*Config, error) {
 	if cfg.AI.Chat.MaxMessageLength <= 0 {
 		cfg.AI.Chat.MaxMessageLength = 4000
 	}
+	// Network defaults
+	if cfg.Network.MonitorInterval <= 0 {
+		cfg.Network.MonitorInterval = 60
+	}
+	if cfg.Network.SNMPInterval <= 0 {
+		cfg.Network.SNMPInterval = 300
+	}
+	if len(cfg.Network.SNMPCommunities) == 0 {
+		cfg.Network.SNMPCommunities = []string{"public", "private"}
+	}
+	if cfg.Network.SNMPCollect.Concurrency <= 0 {
+		cfg.Network.SNMPCollect.Concurrency = 3
+	}
+	if cfg.Network.SNMPCollect.IntervalMs <= 0 {
+		cfg.Network.SNMPCollect.IntervalMs = 100
+	}
+	if cfg.Network.Scan.ICMPConcurrency <= 0 {
+		cfg.Network.Scan.ICMPConcurrency = 10
+	}
+	if cfg.Network.Scan.ICMPIntervalMs <= 0 {
+		cfg.Network.Scan.ICMPIntervalMs = 10
+	}
+	if cfg.Network.Scan.SNMPConcurrency <= 0 {
+		cfg.Network.Scan.SNMPConcurrency = 5
+	}
+	if cfg.Network.Scan.SNMPTimeoutMs <= 0 {
+		cfg.Network.Scan.SNMPTimeoutMs = 2000
+	}
+	if cfg.Network.Scan.ICMPTimeoutMs <= 0 {
+		cfg.Network.Scan.ICMPTimeoutMs = 1000
+	}
+	// Hard cap enforcement (safety constraint)
+	if cfg.Network.Scan.ICMPConcurrency > 10 {
+		cfg.Network.Scan.ICMPConcurrency = 10
+	}
+	if cfg.Network.Scan.ICMPIntervalMs < 10 {
+		cfg.Network.Scan.ICMPIntervalMs = 10
+	}
+	if cfg.Network.Scan.SNMPConcurrency > 5 {
+		cfg.Network.Scan.SNMPConcurrency = 5
+	}
+	if cfg.Network.SNMPCollect.Concurrency > 3 {
+		cfg.Network.SNMPCollect.Concurrency = 3
+	}
+	if cfg.Network.SNMPCollect.IntervalMs < 100 {
+		cfg.Network.SNMPCollect.IntervalMs = 100
+	}
+
 	return &cfg, nil
 }

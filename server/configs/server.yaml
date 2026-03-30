@@ -44,3 +44,22 @@ logging:
     system_days: 30           # 系统日志保留天数
     agent_days: 7             # Agent 日志保留天数
   cleanup_hour: 3             # 每天几点执行清理（0-23）
+
+network:
+  enabled: false                    # 默认关闭，需手动开启
+  monitor_interval: 60              # 连通性监控间隔（秒）
+  snmp_interval: 300                # SNMP 采集间隔（秒）
+  snmp_communities:                 # SNMP community 列表
+    - "public"
+    - "private"
+  snmp_collect:
+    concurrency: 3                  # SNMP 定时采集并发数（hard cap: 3）
+    interval_ms: 100                # SNMP 定时采集请求间隔（minimum: 100ms）
+  scan:
+    icmp_concurrency: 10            # ICMP 并发数（hard cap: 10）
+    icmp_interval_ms: 10            # ICMP 包间隔（minimum: 10ms）
+    snmp_concurrency: 5             # SNMP 探测并发数（hard cap: 5）
+    snmp_timeout_ms: 2000           # SNMP 超时（毫秒）
+    icmp_timeout_ms: 1000           # ICMP 超时（毫秒）
+    schedule: ""                    # 定时扫描 cron（如 "0 2 * * *"），空=不定时
+    schedule_subnets: []            # 定时扫描目标网段
