@@ -99,7 +99,7 @@ CREATE TABLE network_devices (
     device_type     TEXT DEFAULT 'unknown',    -- switch/router/ap/firewall/printer/unknown
     hostname        TEXT DEFAULT '',
     snmp_supported  BOOLEAN DEFAULT FALSE,
-    snmp_community  TEXT DEFAULT '',           -- 成功的 community string
+    snmp_credential_id INTEGER DEFAULT 0,      -- 引用 credentials 表（加密存储 community string）
     sys_descr       TEXT DEFAULT '',           -- SNMP sysDescr
     sys_name        TEXT DEFAULT '',           -- SNMP sysName
     sys_object_id   TEXT DEFAULT '',           -- SNMP sysObjectID
@@ -128,6 +128,8 @@ CREATE TABLE network_links (
     bandwidth   TEXT DEFAULT '',        -- 链路带宽
     last_seen   DATETIME,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- 去重：同一物理链路只存一条（小 ID 在前）
+    -- TopologyBuilder 插入时确保 source_id < target_id
     UNIQUE(source_id, target_id, source_port)
 );
 ```
@@ -140,9 +142,10 @@ CREATE TABLE network_links (
 用户输入目标网段列表（如 "192.168.10.0/24, 192.168.20.0/24"）
   → 前端二次确认（显示网段数、预估 IP 数、预估耗时）
   → POST /api/v1/network/scan
-  → Server 创建扫描任务，网段排队逐个执行
+  → Server 创建扫描任务（携带 context.WithCancel），网段排队逐个执行
+  → DELETE /api/v1/network/scan 调用 cancel() 停止所有在途操作
 
-对每个网段：
+对每个网段（所有 ICMP/SNMP 调用均传入 ctx，cancel 后立即退出）：
   1. ICMP ping sweep（10 并发，10ms 间隔）
      → WebSocket 推送进度（已扫描/总数/已发现）
   2. 对存活 IP：OUI 厂商查询（内嵌 MAC-vendor 数据库，离线查询）
@@ -220,7 +223,7 @@ ConnectivityMonitor 每 60 秒对所有已发现设备执行 ping：
 
 ### 7.1 页面结构
 
-新增侧边栏菜单项「网络拓扑」（图标：`lan`），路由 `/network`。
+新增侧边栏菜单项「网络拓扑」（图标：`device_hub`），路由 `/network`。
 
 页面包含三个 Tab：
 
@@ -263,11 +266,15 @@ ConnectivityMonitor 每 60 秒对所有已发现设备执行 ping：
 
 | 库 | 用途 | 许可 |
 |----|------|------|
-| `pro-bing` (github.com/prometheus-community/pro-bing) | ICMP ping（无需 root，用 UDP ping） | MIT |
-| `gosnmp` (github.com/gosnmp/gosnmp) | SNMP v2c/v3 客户端 | BSD |
+| `pro-bing` (github.com/prometheus-community/pro-bing) | ICMP ping | MIT |
+| `gosnmp` (github.com/gosnmp/gosnmp) | SNMP v2c 客户端 | BSD |
 | 内嵌 OUI 数据 | MAC → 厂商查询（编译时嵌入 JSON） | 公共数据 |
 
-**关于权限**：使用 `pro-bing` 的 UDP ping 模式，无需 `CAP_NET_RAW`，普通用户即可执行。如果 UDP ping 不可用，降级为 TCP connect 探测。
+**关于 ICMP 权限**：`pro-bing` 使用原始 ICMP socket，Linux 上需要以下二选一：
+1. **推荐**：给二进制文件设置 capability — `sudo setcap cap_net_raw+ep /opt/opsboard/opsboard-server`
+2. 或配置内核参数 — `sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`
+
+部署脚本需包含此步骤。当前 `opsboard-server` 以 yuanqing 用户运行，方式 1 更安全（最小权限）。
 
 ## 九、配置（server.yaml）
 
