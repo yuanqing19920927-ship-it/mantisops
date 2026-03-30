@@ -15,6 +15,7 @@ import Containers from './pages/Containers'
 import Logs from './pages/Logs'
 import NAS from './pages/NAS'
 import NASDetail from './pages/NAS/NASDetail'
+import Network from './pages/Network'
 import Login from './pages/Login'
 import ChangePassword from './pages/ChangePassword'
 import Users from './pages/Users'
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="/assets" element={<Assets />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/logs" element={<Logs />} />
+          <Route path="/network" element={<Network />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/system" element={<RequireAdmin><SystemAdmin /></RequireAdmin>} />
           <Route path="/ai-reports" element={<AIReports />} />

@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react'
 import { useServerStore } from '../stores/serverStore'
 import { useAlertStore } from '../stores/alertStore'
 import { useAIStore } from '../stores/aiStore'
+import { useNetworkStore } from '../stores/networkStore'
 import type { DeployProgress, CloudSyncProgress } from '../types/onboarding'
+import type { ScanStatus } from '../api/network'
 
 let globalWs: WebSocket | null = null
 let refCount = 0
@@ -43,6 +45,14 @@ export function useWebSocket() {
   const removeGenReport = useAIStore((s) => s.removeGeneratingReport)
   const removeGenReportRef = useRef(removeGenReport)
   removeGenReportRef.current = removeGenReport
+
+  const setNetworkScanStatus = useNetworkStore((s) => s.setScanStatus)
+  const setNetworkScanStatusRef = useRef(setNetworkScanStatus)
+  setNetworkScanStatusRef.current = setNetworkScanStatus
+
+  const updateNetworkDevice = useNetworkStore((s) => s.updateDeviceInList)
+  const updateNetworkDeviceRef = useRef(updateNetworkDevice)
+  updateNetworkDeviceRef.current = updateNetworkDevice
 
   useEffect(() => {
     refCount++
@@ -114,6 +124,21 @@ export function useWebSocket() {
           if (msg.type === 'ai_report_completed' || msg.type === 'ai_report_failed') {
             removeGenReportRef.current(msg.report_id)
             window.dispatchEvent(new CustomEvent(msg.type, { detail: msg }))
+          }
+          if (
+            msg.type === 'network_scan_progress' ||
+            msg.type === 'network_scan_subnet_done' ||
+            msg.type === 'network_scan_job_done'
+          ) {
+            if (msg.data) {
+              setNetworkScanStatusRef.current(msg.data as ScanStatus)
+            }
+          }
+          if (msg.type === 'network_device_status' && msg.data) {
+            const d = msg.data as { id: number; status: string }
+            if (d.id && d.status) {
+              updateNetworkDeviceRef.current(d.id, { status: d.status })
+            }
           }
         } catch {
           // ignore
