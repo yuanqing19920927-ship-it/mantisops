@@ -60,7 +60,7 @@
 
 数据存储：
   SQLite → network_devices, network_subnets, network_links
-  WebSocket → scan_progress, device_status_change
+  WebSocket → network_scan_progress, network_scan_subnet_done, network_scan_job_done, network_device_status
 ```
 
 ### 3.2 模块划分
@@ -325,12 +325,12 @@ network:
     - "public"
     - "private"
   snmp_collect:
-    concurrency: 3                  # SNMP 定时采集并发数（hard cap: 3）
-    interval_ms: 100                # SNMP 定时采集请求间隔
+    concurrency: 3                  # SNMP 定时采集并发数（hard cap: 3，不可超过）
+    interval_ms: 100                # SNMP 定时采集请求间隔（minimum: 100ms，不可低于）
   scan:
-    icmp_concurrency: 10            # ICMP 并发数（hard cap: 10）
-    icmp_interval_ms: 10            # ICMP 包间隔（hard cap 下限: 10ms）
-    snmp_concurrency: 5             # SNMP 探测并发数（hard cap: 5）
+    icmp_concurrency: 10            # ICMP 并发数（hard cap: 10，不可超过）
+    icmp_interval_ms: 10            # ICMP 包间隔（minimum: 10ms，不可低于）
+    snmp_concurrency: 5             # SNMP 探测并发数（hard cap: 5，不可超过）
     snmp_timeout_ms: 2000           # SNMP 超时（毫秒）
     icmp_timeout_ms: 1000           # ICMP 超时（毫秒）
     schedule: ""                    # 定时扫描 cron 表达式（如 "0 2 * * *" = 每天凌晨2点），空=不定时
