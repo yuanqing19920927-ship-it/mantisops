@@ -32,8 +32,9 @@
 ### 2.2 禁止行为
 
 - **禁止广播包** — 不使用 ARP 广播扫描，仅用单播 ICMP echo
+- **禁止主动发送 LLDP/CDP 帧** — 拓扑链路数据通过 SNMP GET 被动读取设备已有的邻居表，不主动发射发现帧
 - **禁止 SYN flood** — 不做全端口扫描，SNMP 仅探测 UDP 161
-- **禁止并行扫描多网段** — 同一时间只扫描一个网段，排队执行
+- **禁止并行扫描多网段** — 同一时间只扫描一个网段，排队执行；速率限制为全局级别（非每网段）
 - **超时快速放弃** — ICMP 超时 1 秒，SNMP 超时 2 秒，不重试不可达目标
 - **扫描时间窗口** — 默认仅在非工作时间执行定时扫描（可配置）
 
@@ -156,16 +157,49 @@ CREATE TABLE network_links (
   6. WebSocket 推送 scan_complete
 ```
 
-### 5.2 定时连通性监控
+### 5.2 扫描任务模型
+
+扫描任务在内存中维护（不持久化），状态机：
+
+```
+idle → scanning → completed / cancelled / failed
+```
+
+- 同一时间只允许一个扫描任务运行，重复提交返回 409
+- `GET /api/v1/network/scan/status` 返回：`{ status, current_subnet, progress, started_at, error }`
+- 扫描完成/取消/失败后状态保留 5 分钟，之后回到 idle
+
+### 5.3 错误处理
+
+| 场景 | 行为 |
+|------|------|
+| 单个 IP ping 超时 | 跳过，不计入存活列表 |
+| SNMP 探测失败 | 标记 snmp_supported=false，继续下一个 |
+| SQLite 写入失败 | 记录错误日志，跳过该设备，不中断扫描 |
+| WebSocket 推送失败 | 静默忽略，不影响扫描逻辑 |
+| 扫描中途取消 | 已写入的数据保留，未完成的网段标记为 cancelled |
+| CIDR 格式错误 | POST 接口直接返回 400 |
+
+### 5.4 SNMP 凭据策略
+
+1. 首次扫描时：使用 `server.yaml` 中配置的 `snmp_communities` 列表（默认 `["public", "private"]`）逐个尝试
+2. 成功后：将有效的 community string 通过现有 `credentials` 系统加密存储，关联到 `network_devices.snmp_credential_id`
+3. 后续采集：优先使用已存储的凭据，不再重试列表
+4. 用户可通过 `/api/v1/network/snmp-config` 修改全局 community 列表
+
+### 5.5 定时连通性监控
 
 ```
 ConnectivityMonitor 每 60 秒对所有已发现设备执行 ping：
   - 10 并发，20ms 间隔
   - 超时 1 秒
+  - 离线判定：连续 3 次 ping 失败后标记为 offline（防止瞬时抖动误报）
+  - 恢复判定：1 次 ping 成功即恢复为 online
   - 状态变化（online → offline 或 offline → online）：
     → 更新 DB
     → WebSocket 推送 device_status_change
-    → 触发告警（可选，复用现有告警引擎）
+    → 触发 network_device_offline 告警（复用现有 AlertEngine）
+  - 告警恢复：设备重新上线时自动 resolve 对应告警事件
 ```
 
 ### 5.3 SNMP 定时采集
@@ -298,8 +332,8 @@ network:
 
 | 集成点 | 方式 |
 |--------|------|
-| **已有服务器** | 扫描发现的 IP 匹配 servers 表的 ip_addresses，自动关联 server_id |
-| **告警引擎** | 新增告警类型 `network_device_offline`，复用现有 AlertEngine |
+| **已有服务器** | 扫描发现的 IP 精确匹配 servers 表 ip_addresses 字段（逗号分隔的多 IP 逐一比对），匹配成功设置 server_id，前端拓扑图中该节点显示为服务器图标 |
+| **告警引擎** | 新增告警类型 `network_device_offline`，连续 3 次 ping 失败触发、1 次成功自动恢复，复用现有 AlertEngine 的规则/事件/通知机制 |
 | **WebSocket** | 复用现有 Hub，新增 network_* 事件类型 |
 | **权限** | 扫描操作 admin only，查看 all（复用 RequireRole） |
 
