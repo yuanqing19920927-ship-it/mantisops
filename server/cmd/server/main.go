@@ -135,8 +135,12 @@ func main() {
 	defer nasCollector.Stop()
 
 	// 10. Alert system
+	// networkStore is created here (early) so it can be passed to the alerter
+	// for network_device_offline rule evaluation.  The full network topology
+	// module (scanner, monitor, handler) is initialised later at step 18.
+	alertNetworkStore := store.NewNetworkStore(db)
 	alertStore := store.NewAlertStore(db)
-	alerter := alert.NewAlerter(alertStore, hub, mc, prober, serverStore, nasCollector)
+	alerter := alert.NewAlerter(alertStore, hub, mc, prober, serverStore, nasCollector, alertNetworkStore)
 	alerter.Start()
 	defer alerter.Stop()
 	alertHandler := api.NewAlertHandler(alertStore, alerter, permCache)
@@ -235,8 +239,8 @@ func main() {
 	// NAS handler
 	nasHandler := api.NewNasHandler(nasStore, credentialStore, nasCollector)
 
-	// Network topology module
-	networkStore := store.NewNetworkStore(db)
+	// Network topology module (reuse the store created earlier for alerter)
+	networkStore := alertNetworkStore
 	var networkHandler *api.NetworkHandler
 	var networkMonitor *network.ConnectivityMonitor
 	if cfg.Network.Enabled {

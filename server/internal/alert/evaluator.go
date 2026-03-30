@@ -7,6 +7,7 @@ import (
 
 	"mantisops/server/internal/collector"
 	"mantisops/server/internal/model"
+	"mantisops/server/internal/store"
 	pb "mantisops/server/proto/gen"
 )
 
@@ -35,6 +36,12 @@ type ProbeProvider interface {
 // ServerProvider interface for reading server info
 type ServerProvider interface {
 	List() ([]model.Server, error)
+}
+
+// NetworkProvider interface for reading network device status.
+type NetworkProvider interface {
+	// GetAllDevices returns all known network devices with their current status.
+	GetAllDevices() ([]store.NetworkDevice, error)
 }
 
 // Evaluate evaluates a rule against all applicable targets
@@ -345,6 +352,46 @@ func EvaluateNas(rule model.AlertRule, nasID int64, snap *collector.NasMetricsSn
 	}
 
 	return nil
+}
+
+// evalNetworkDeviceOffline evaluates network device offline rules.
+// It does NOT use the consecutive-count threshold: the ConnectivityMonitor
+// already applies a 3-fail threshold before setting status="offline", so
+// any device currently marked offline is immediately treated as a hit.
+//
+// rule.TargetID can be:
+//   - ""    : match all devices
+//   - "all" : match all devices
+//   - an IP address : match a specific device
+func evalNetworkDeviceOffline(rule model.AlertRule, network NetworkProvider) []EvalResult {
+	devices, err := network.GetAllDevices()
+	if err != nil {
+		return nil
+	}
+	var results []EvalResult
+	for _, dev := range devices {
+		if rule.TargetID != "" && rule.TargetID != "all" && rule.TargetID != dev.IP {
+			continue
+		}
+		hit := dev.Status == "offline"
+		label := dev.IP
+		if dev.Hostname != "" {
+			label = fmt.Sprintf("%s (%s)", dev.Hostname, dev.IP)
+		}
+		msg := fmt.Sprintf("网络设备 %s 已离线", label)
+		if !hit {
+			msg = fmt.Sprintf("网络设备 %s 在线", label)
+		}
+		results = append(results, EvalResult{
+			StateKey: fmt.Sprintf("%d:netdev:%d", rule.ID, dev.ID),
+			TargetID: fmt.Sprintf("netdev:%d", dev.ID),
+			Hit:      hit,
+			Value:    0,
+			Label:    label,
+			Message:  msg,
+		})
+	}
+	return results
 }
 
 // evalNetwork evaluates aggregated network traffic across all interfaces

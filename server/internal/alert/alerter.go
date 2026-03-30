@@ -40,13 +40,14 @@ type Alerter struct {
 	probes  ProbeProvider
 	servers ServerProvider
 	nas     NasProvider
+	network NetworkProvider
 	mu      sync.RWMutex
 	states  map[string]*ruleState
 	stopCh  chan struct{}
 }
 
 // NewAlerter creates a new Alerter instance.
-func NewAlerter(s *store.AlertStore, hub *ws.Hub, metrics MetricsProvider, probes ProbeProvider, servers ServerProvider, nas NasProvider) *Alerter {
+func NewAlerter(s *store.AlertStore, hub *ws.Hub, metrics MetricsProvider, probes ProbeProvider, servers ServerProvider, nas NasProvider, network NetworkProvider) *Alerter {
 	return &Alerter{
 		store:   s,
 		hub:     hub,
@@ -54,6 +55,7 @@ func NewAlerter(s *store.AlertStore, hub *ws.Hub, metrics MetricsProvider, probe
 		probes:  probes,
 		servers: servers,
 		nas:     nas,
+		network: network,
 		states:  make(map[string]*ruleState),
 		stopCh:  make(chan struct{}),
 	}
@@ -137,6 +139,10 @@ func (a *Alerter) evaluate() {
 
 	if a.nas != nil {
 		a.evaluateNas(rules)
+	}
+
+	if a.network != nil {
+		a.evaluateNetworkDevices(rules)
 	}
 
 	a.cleanupGoneTargets(servers)
@@ -309,6 +315,29 @@ func (a *Alerter) evaluateNasOffline(rule model.AlertRule, allMetrics map[int64]
 	}
 }
 
+// evaluateNetworkDevices evaluates all network_device_offline alert rules.
+// The consecutive-count mechanism in processResult is bypassed for this type:
+// ConnectivityMonitor already enforces a 3-fail threshold before setting
+// status="offline", so we fire immediately on the first offline observation
+// and resolve immediately when the device is back online.
+// We achieve this by using rule.Duration=1 semantics — the rule struct is
+// temporarily overridden so processResult fires/resolves on first hit/normal.
+func (a *Alerter) evaluateNetworkDevices(rules []model.AlertRule) {
+	for _, rule := range rules {
+		if rule.Type != "network_device_offline" {
+			continue
+		}
+		results := evalNetworkDeviceOffline(rule, a.network)
+		// Override Duration to 1 so processResult fires/resolves immediately
+		// without waiting for multiple consecutive cycles.
+		immediateRule := rule
+		immediateRule.Duration = 1
+		for _, r := range results {
+			a.processResult(immediateRule, r)
+		}
+	}
+}
+
 // cleanupDisabledRules removes non-firing states for rules that are no longer enabled.
 func (a *Alerter) cleanupDisabledRules(enabledRules []model.AlertRule) {
 	enabledIDs := make(map[int]bool, len(enabledRules))
@@ -359,6 +388,16 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 		}
 	}
 
+	// Collect network device IDs
+	netdevIDs := make(map[string]bool)
+	if a.network != nil {
+		if devices, err := a.network.GetAllDevices(); err == nil {
+			for _, dev := range devices {
+				netdevIDs[fmt.Sprintf("netdev:%d", dev.ID)] = true
+			}
+		}
+	}
+
 	// Find firing states whose targets are gone
 	type goneEntry struct {
 		key     string
@@ -371,7 +410,7 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 		if !st.firing {
 			continue
 		}
-		if !a.isTargetPresent(key, serverIDs, hostDisks, hostContainers, probeIDs, nasIDs) {
+		if !a.isTargetPresent(key, serverIDs, hostDisks, hostContainers, probeIDs, nasIDs, netdevIDs) {
 			gone = append(gone, goneEntry{key: key, eventID: st.eventID})
 		}
 	}
@@ -397,15 +436,22 @@ func (a *Alerter) cleanupGoneTargets(servers []model.Server) {
 
 // isTargetPresent checks if the target referenced by a state key still exists.
 // Called with mu held for reading.
-func (a *Alerter) isTargetPresent(key string, serverIDs map[string]bool, hostDisks, hostContainers map[string]map[string]bool, probeIDs, nasIDs map[string]bool) bool {
+func (a *Alerter) isTargetPresent(key string, serverIDs map[string]bool, hostDisks, hostContainers map[string]map[string]bool, probeIDs, nasIDs, netdevIDs map[string]bool) bool {
 	// State key format: "ruleID:targetID" or "ruleID:hostID:mount_or_container"
-	// NAS keys: "ruleID:nas:nasID" or "ruleID:nas:nasID:subLabel"
+	// NAS keys:    "ruleID:nas:nasID" or "ruleID:nas:nasID:subLabel"
+	// Netdev keys: "ruleID:netdev:deviceID"
 	parts := strings.SplitN(key, ":", 3)
 	if len(parts) < 2 {
 		return true // can't parse, assume present
 	}
 
 	targetID := parts[1]
+
+	// Check network device targets: key is "ruleID:netdev:deviceID"
+	if targetID == "netdev" && len(parts) == 3 {
+		netdevKey := fmt.Sprintf("netdev:%s", parts[2])
+		return netdevIDs[netdevKey]
+	}
 
 	// Check NAS targets: key starts with "ruleID:nas:..."
 	if targetID == "nas" && len(parts) == 3 {
