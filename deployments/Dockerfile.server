@@ -1,5 +1,6 @@
 # ---- Build stage ----
 FROM golang:1.26-bookworm AS builder
+ENV GOPROXY=https://goproxy.cn,direct
 WORKDIR /build
 COPY server/ ./server/
 WORKDIR /build/server

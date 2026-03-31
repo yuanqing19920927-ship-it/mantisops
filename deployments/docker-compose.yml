@@ -34,7 +34,7 @@ services:
     mem_limit: 64m
 
   victoria-metrics:
-    image: victoriametrics/victoria-metrics:v1.106.1
+    image: victoriametrics/victoria-metrics:v1.117.1
     container_name: victoria-metrics
     command:
       - "-retentionPeriod=90d"
@@ -45,9 +45,10 @@ services:
     ports:
       - "127.0.0.1:8428:8428"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8428/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8428/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
     mem_limit: 256m
