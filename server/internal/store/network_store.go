@@ -71,10 +71,22 @@ func NewNetworkStore(db *sql.DB) *NetworkStore {
 // ---- Subnets ----------------------------------------------------------------
 
 // ListSubnets returns all subnets ordered by id.
+// total_hosts and alive_hosts are computed dynamically from the devices table.
 func (s *NetworkStore) ListSubnets() ([]NetworkSubnet, error) {
 	rows, err := s.db.Query(`
-		SELECT id, cidr, name, gateway, total_hosts, alive_hosts, last_scan, created_at
-		FROM network_subnets ORDER BY id
+		SELECT s.id, s.cidr, s.name, s.gateway,
+		       COALESCE(d.total, 0) AS total_hosts,
+		       COALESCE(d.alive, 0) AS alive_hosts,
+		       s.last_scan, s.created_at
+		FROM network_subnets s
+		LEFT JOIN (
+			SELECT subnet_id,
+			       COUNT(*) AS total,
+			       SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) AS alive
+			FROM network_devices
+			GROUP BY subnet_id
+		) d ON d.subnet_id = s.id
+		ORDER BY s.id
 	`)
 	if err != nil {
 		return nil, err
@@ -176,6 +188,7 @@ func (s *NetworkStore) GetDevice(id int) (*NetworkDevice, error) {
 func (s *NetworkStore) GetAllDevices() ([]NetworkDevice, error) {
 	return s.ListDevices(0)
 }
+
 
 // UpsertDevice inserts or updates a device row identified by ip.
 // Business rules applied on conflict:

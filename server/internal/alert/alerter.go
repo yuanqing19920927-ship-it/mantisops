@@ -160,16 +160,23 @@ func (a *Alerter) processResult(rule model.AlertRule, result EvalResult) {
 	}
 	st.lastValue = result.Value
 
+	// Duration is stored in seconds; evaluation runs every 30s.
+	// Convert to the number of consecutive evaluation cycles required.
+	requiredCycles := rule.Duration / 30
+	if requiredCycles < 1 {
+		requiredCycles = 1
+	}
+
 	if result.Hit {
 		st.consecutiveHits++
 		st.consecutiveNormals = 0
-		if st.consecutiveHits >= rule.Duration && !st.firing {
+		if st.consecutiveHits >= requiredCycles && !st.firing {
 			a.fireAlert(rule, result, st)
 		}
 	} else {
 		st.consecutiveNormals++
 		st.consecutiveHits = 0
-		if st.consecutiveNormals >= rule.Duration && st.firing {
+		if st.consecutiveNormals >= requiredCycles && st.firing {
 			a.resolveAlert(st, "auto")
 		}
 	}
