@@ -1,0 +1,64 @@
+# MantisOps Docker 部署配置模板
+# 复制为 configs/server.yaml 后修改实际值
+
+server:
+  http_addr: "0.0.0.0:3100"            # Docker 容器内需监听 0.0.0.0
+  grpc_addr: "0.0.0.0:3101"
+  grpc_advertise_addr: "YOUR_HOST_IP:3101"  # 替换为宿主机 IP，供 Agent 连接
+  psk_token: "change-me-to-a-secure-token"
+
+victoria_metrics:
+  url: "http://victoria-metrics:8428"   # Docker 网络内通过容器名访问
+
+sqlite:
+  path: "/app/data/mantisops.db"
+
+probe:
+  interval: 30
+  timeout: 5
+
+websocket:
+  ping_interval: 15
+
+auth:
+  username: "admin"
+  password: "change-me"
+  jwt_secret: "change-me-to-a-random-string-at-least-32-chars"
+
+encryption_key: "generate-with-openssl-rand-hex-32"
+
+logging:
+  dir: "/app/logs"
+  level: "info"
+  buffer_size: 4096
+  retention:
+    audit_days: 90
+    system_days: 30
+    agent_days: 7
+  cleanup_hour: 3
+
+# 网络拓扑扫描（需要 CAP_NET_RAW 权限，已在 docker-compose 中配置）
+network:
+  enabled: false
+
+# AI 分析模块
+ai:
+  enabled: false
+  active_provider: "claude"
+  timezone: "Asia/Shanghai"
+  claude:
+    api_key: ""
+    report_model: "claude-sonnet-4-20250514"
+    chat_model: "claude-haiku-4-5-20251001"
+    max_tokens: 8192
+  openai:
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    report_model: "gpt-4o"
+    chat_model: "gpt-4o-mini"
+    max_tokens: 8192
+  ollama:
+    host: "http://host.docker.internal:11434"
+    report_model: ""
+    chat_model: ""
+    max_tokens: 4096

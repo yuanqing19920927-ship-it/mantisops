@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.superpowers
+node_modules
+data/
+logs/
+vm-data/
+build/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+docs/superpowers/
+server/configs/server.yaml

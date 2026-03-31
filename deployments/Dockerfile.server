@@ -1,15 +1,19 @@
-# Build stage
-FROM golang:1.22-alpine AS builder
-RUN apk add --no-cache gcc musl-dev
+# ---- Build stage ----
+FROM golang:1.26-bookworm AS builder
 WORKDIR /build
-COPY deploy/server/ ./server/
-COPY deploy/proto/ ./proto/
+COPY server/ ./server/
 WORKDIR /build/server
-RUN CGO_ENABLED=1 go build -o /opsboard-server ./cmd/server/
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" -o /mantisops-server ./cmd/server/
 
-# Runtime stage
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates sqlite-libs
-COPY --from=builder /opsboard-server /usr/local/bin/opsboard-server
+# ---- Runtime stage ----
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /mantisops-server /usr/local/bin/mantisops-server
 WORKDIR /app
-CMD ["opsboard-server", "-config", "/app/configs/server.yaml"]
+RUN mkdir -p /app/data /app/logs /app/configs /app/build
+EXPOSE 3100 3101
+CMD ["mantisops-server", "-config", "/app/configs/server.yaml"]

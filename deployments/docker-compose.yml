@@ -1,30 +1,47 @@
 services:
-  opsboard-server:
+  mantisops-server:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.server
+    container_name: mantisops-server
     ports:
-      - "127.0.0.1:3100:3100"
-      - "0.0.0.0:3101:3101"
-      - "0.0.0.0:3102:3102"
+      - "127.0.0.1:3100:3100"    # HTTP API（内部，由 Nginx 反代）
+      - "0.0.0.0:3101:3101"      # gRPC（对外，供 Agent 连接）
     volumes:
-      - /opt/opsboard/data:/app/data
-      - /opt/opsboard/configs:/app/configs
-      - /opt/opsboard/certs:/app/certs
+      - ${MANTISOPS_DATA:-./data}:/app/data          # SQLite 数据库
+      - ${MANTISOPS_LOGS:-./logs}:/app/logs           # 日志
+      - ${MANTISOPS_CONFIGS:-./configs}:/app/configs  # 配置文件
+      - ${MANTISOPS_BUILD:-./build}:/app/build        # Agent 二进制
     depends_on:
       victoria-metrics:
         condition: service_healthy
-    restart: always
-    mem_limit: 192m
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW       # 网络拓扑 ICMP 扫描需要
+    mem_limit: 256m
+
+  mantisops-web:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.web
+    container_name: mantisops-web
+    ports:
+      - "0.0.0.0:3080:3080"      # Web 入口
+    depends_on:
+      - mantisops-server
+      - victoria-metrics
+    restart: unless-stopped
+    mem_limit: 64m
 
   victoria-metrics:
     image: victoriametrics/victoria-metrics:v1.106.1
+    container_name: victoria-metrics
     command:
-      - "-retentionPeriod=7d"
+      - "-retentionPeriod=90d"
       - "-storageDataPath=/data"
       - "-httpListenAddr=:8428"
     volumes:
-      - /opt/opsboard/vm-data:/data
+      - ${MANTISOPS_VM_DATA:-./vm-data}:/data
     ports:
       - "127.0.0.1:8428:8428"
     healthcheck:
@@ -32,5 +49,5 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
-    restart: always
+    restart: unless-stopped
     mem_limit: 256m

@@ -127,7 +127,26 @@ EOF
 ./mantisops-agent
 ```
 
-### 5. 生产部署
+### 5. Docker 部署（推荐）
+
+```bash
+# 1. 准备配置
+mkdir -p configs
+cp deployments/server.yaml.docker configs/server.yaml
+# 编辑 configs/server.yaml，修改必填项：psk_token, jwt_secret, encryption_key, grpc_advertise_addr
+
+# 2. 一键启动（Server + Web + VictoriaMetrics）
+cd deployments
+docker compose up -d
+
+# 3. 访问
+# Web: http://your-ip:3080
+# 默认账号: admin / change-me（请立即修改）
+```
+
+Agent 仍需在被监控服务器上独立部署（见步骤 4），gRPC 连接地址为 `your-ip:3101`。
+
+### 6. 手动部署
 
 ```bash
 # 编译后端
@@ -176,7 +195,13 @@ mantisops/
 │       ├── pages/            # 页面
 │       ├── stores/           # Zustand 状态管理
 │       └── hooks/            # 自定义 Hooks
-└── deployments/              # 部署配置（Nginx 等）
+└── deployments/              # 部署配置
+    ├── docker-compose.yml    # Docker 一键部署
+    ├── Dockerfile.server     # Server 镜像
+    ├── Dockerfile.web        # Web + Nginx 镜像
+    ├── nginx.conf            # 裸机 Nginx 配置
+    ├── nginx-docker.conf     # Docker Nginx 配置
+    └── server.yaml.docker    # Docker 配置模板
 ```
 
 ## License
